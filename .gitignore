@@ -1,0 +1,16 @@
+.idea/
+.history/
+*.pyc
+*.log
+*.jpg
+*.png
+*.json
+*.egg-info
+app_web.log
+/.git/
+.DS_Store
+test_api
+test.log.txt
+.flask_cache/
+__pycache__/
+mmpose/mmpose/.mim/

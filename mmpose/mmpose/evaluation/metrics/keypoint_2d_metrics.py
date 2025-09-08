@@ -762,6 +762,8 @@ class NME(BaseMetric):
         'wflw': [60, 72],
         # lapa: corresponding to `right-most` and `left-most` eye keypoints
         'lapa': [66, 79],
+        # inshot: corresponding to `right-most` and `left-most` eye keypoints
+        'inshot': [77, 113],
     }
 
     def __init__(self,
