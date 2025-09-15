@@ -47,10 +47,34 @@ auto_scale_lr = dict(base_batch_size=512)
 codec = dict(
     type='SimCCLabel',
     input_size=input_size,
-    sigma=(5.66, 5.66),
+    sigma=(4.9, 4.9),
     simcc_split_ratio=2.0,
     normalize=False,
     use_dark=False)
+
+norm_cfg = dict(type='BN', requires_grad=True)
+
+cfgs_md2_middle = dict(
+    cfg=[
+        # k,  t,  c, s
+        [3,   1,  16, 1], # 1/2        0.464K  17.461M
+        [3,   4,  32, 2], # 1/4 1      3.44K   64.878M
+        [3,   3,  32, 1], #            4.44K   41.772M
+        [5,   3,  64, 2], # 1/8 3      6.776K  29.146M
+        [5,   3,  64, 1], #            13.16K  30.952M
+        [3,   3,  128, 2], # 1/16 5     16.12K  18.369M
+        [3,   3,  128, 1], #            41.68K  24.508M
+        [5,   6,  160, 2], # 1/32 7     0.129M  36.385M
+        [5,   6,  160, 1], #            0.335M  49.298M
+        [3,   6,  160, 1], #            0.335M  49.298M
+    ],
+    channels=[32, 64, 128, 160],
+    out_channels=[None, None, None, None],
+    embed_out_indice=[2, 4, 6, 9],
+    decode_out_indices=[3, ],
+    num_heads=8,
+    c2t_stride=1,
+)
 
 # model settings
 model = dict(
@@ -60,23 +84,24 @@ model = dict(
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
-    backbone=dict(
-        _scope_='mmdet',
-        type='CSPNeXt',
-        arch='P5',
-        expand_ratio=0.5,
-        deepen_factor=0.167,
-        widen_factor=0.375,
-        out_indices=(4, ),
-        channel_attention=True,
-        norm_cfg=dict(type='SyncBN'),
-        act_cfg=dict(type='SiLU'),
+     backbone=dict(
+        type='Topformer',
+        cfgs=cfgs_md2_middle['cfg'], 
+        channels=cfgs_md2_middle['channels'],
+        out_channels=cfgs_md2_middle['out_channels'], 
+        embed_out_indice=cfgs_md2_middle['embed_out_indice'],
+        decode_out_indices=cfgs_md2_middle['decode_out_indices'],
+        depths=4,
+        num_heads=cfgs_md2_middle['num_heads'],
+        c2t_stride=cfgs_md2_middle['c2t_stride'],
+        drop_path_rate=0.,
+        norm_cfg=norm_cfg,
         init_cfg=dict(
             type='Pretrained',
-            prefix='backbone.',
-            checkpoint='https://download.openmmlab.com/mmdetection/v3.0/'
-            'rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e-3a2dd350.pth'  # noqa
-        )),
+            # prefix='backbone.',
+            checkpoint='/home/zhangxiaoshuai/Pretrained/topformer-B-224-75.3.pth'
+        ),
+        injection=False),
     head=dict(
         type='RTMCCHead',
         in_channels=384,

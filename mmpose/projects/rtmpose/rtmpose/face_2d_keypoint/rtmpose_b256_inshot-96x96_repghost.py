@@ -2,13 +2,13 @@ _base_ = ['mmpose::_base_/default_runtime.py']
 
 # common setting
 num_keypoints = 235
-input_size = (128, 128)
+input_size = (96, 96)
 
 # runtime
 max_epochs = 300
 stage2_num_epochs = 50
 base_lr = 4e-3
-train_batch_size = 128
+train_batch_size = 256
 val_batch_size = 32
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=1)
@@ -32,10 +32,10 @@ param_scheduler = [
         end=1000),
     dict(
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.005,
-        begin=30,
+        eta_min=base_lr * 0.001,
+        begin=max_epochs // 2,
         end=max_epochs,
-        T_max=max_epochs - 30,
+        T_max=max_epochs // 2,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
@@ -43,14 +43,52 @@ param_scheduler = [
 # automatically scaling LR based on the actual training batch size
 auto_scale_lr = dict(base_batch_size=512)
 
+custom_hooks = [
+    dict(type='RepGhostHook')
+]
+
 # codec settings
 codec = dict(
     type='SimCCLabel',
     input_size=input_size,
-    sigma=(5.66, 5.66),
+    sigma=(3.67, 3.67),
     simcc_split_ratio=2.0,
     normalize=False,
     use_dark=False)
+
+norm_cfg = dict(type='BN', requires_grad=True)
+
+enable_se = True
+cfgs_md2_middle = dict(
+    cfg = [
+        # k, t, c, SE, s
+        # stage1
+        [[3, 8, 16, 0, 1]],
+        # stage2
+        [[3, 24, 24, 0, 2]],
+        [[3, 36, 24, 0, 1]],
+        # stage3
+        [[5, 36, 40, 0.25 if enable_se else 0, 2]],
+        [[5, 60, 40, 0.25 if enable_se else 0, 1]],
+        # stage4
+        [[3, 120, 80, 0, 2]],
+        [
+            [3, 100, 80, 0, 1],
+            [3, 120, 80, 0, 1],
+            [3, 120, 80, 0, 1],
+            [3, 240, 112, 0.25 if enable_se else 0, 1],
+            [3, 336, 112, 0.25 if enable_se else 0, 1],
+        ],
+        # stage5
+        [[5, 336, 160, 0.25 if enable_se else 0, 2]],
+        [
+            [5, 480, 160, 0, 1],
+            [5, 480, 160, 0.25 if enable_se else 0, 1],
+            [5, 480, 160, 0, 1],
+            [5, 480, 160, 0.25 if enable_se else 0, 1],
+        ],
+    ]
+)
 
 # model settings
 model = dict(
@@ -60,40 +98,26 @@ model = dict(
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
-    backbone=dict(
-        _scope_='mmdet',
-        type='CSPNeXt',
-        arch='P5',
-        expand_ratio=0.5,
-        deepen_factor=0.167,
-        widen_factor=0.375,
-        out_indices=(4, ),
-        channel_attention=True,
-        norm_cfg=dict(type='SyncBN'),
-        act_cfg=dict(type='SiLU'),
+     backbone=dict(
+        type='RepGhostNet',
+        cfgs=cfgs_md2_middle['cfg'], 
+        width=1.0,
+        deploy=False,
         init_cfg=dict(
             type='Pretrained',
-            prefix='backbone.',
-            checkpoint='https://download.openmmlab.com/mmdetection/v3.0/'
-            'rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e-3a2dd350.pth'  # noqa
-        )),
+            # prefix='backbone.',
+            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_1_0x_142M_74.22.pth.tar'
+        )
+        ),
     head=dict(
         type='RTMCCHead',
-        in_channels=384,
+        in_channels=160,
         out_channels=num_keypoints,
         input_size=codec['input_size'],
         in_featuremap_size=tuple([s // 32 for s in codec['input_size']]),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=7,
-        gau_cfg=dict(
-            hidden_dims=256,
-            s=128,
-            expansion_factor=2,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='SiLU',
-            use_rel_bias=False,
-            pos_enc=False),
+        final_layer_kernel_size=1,
+        gau_cfg=None,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
@@ -105,7 +129,7 @@ model = dict(
 # base dataset settings
 dataset_type = 'InshotDataset'
 data_mode = 'topdown'
-data_root = '/data/xiaoshuai/facial_lanmark/ldk_1face/'
+data_root = '/data/xiaoshuai/facial_lanmark/'
 
 backend_args = dict(backend='local')
 
@@ -148,7 +172,7 @@ train_pipeline_stage2 = [
     dict(type='LoadImage', backend_args=backend_args),
     dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
-    dict(type='RandomHalfBody'),
+    # dict(type='RandomHalfBody'),
     dict(
         type='RandomBBoxTransform',
         shift_factor=0.,
@@ -185,8 +209,8 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/train_1face_annotations.json',
-        data_prefix=dict(img=''),
+        ann_file='train/annotations/train_all_annotations.json',
+        data_prefix=dict(img='train/'),
         pipeline=train_pipeline,
     ))
 val_dataloader = dict(
@@ -199,7 +223,7 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/coco_face_annotations.json',
+        ann_file='val/annotations/val_all_annotations.json',
         data_prefix=dict(img='val/'),
         test_mode=True,
         pipeline=val_pipeline,
@@ -214,7 +238,7 @@ test_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/coco_face_annotations.json',
+        ann_file='val/annotations/val_all_annotations.json',
         data_prefix=dict(img='val/'),
         test_mode=True,
         pipeline=val_pipeline,

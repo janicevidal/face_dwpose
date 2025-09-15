@@ -107,6 +107,11 @@ class ScaleNorm(nn.Module):
 
         norm = torch.norm(x, dim=2, keepdim=True) * self.scale
         return x / norm.clamp(min=self.eps) * self.g
+        
+        # norm = x / torch.norm(x, dim=2, keepdim=True)
+        # norm = torch.nn.functional.normalize(x, p=2, dim=2)
+        # norm = norm * (1 / self.scale) * self.g
+        # return norm
 
 
 class RTMCCBlock(nn.Module):

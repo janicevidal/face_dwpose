@@ -134,8 +134,16 @@ def convert_to_coco_format(image_dir, npy_dir, output_json_path):
 
 if __name__ == "__main__":
 
-    image_dir = "/data/xiaoshuai/facial_lanmark/ffhq_1face/" 
-    npy_dir = "/data/xiaoshuai/facial_lanmark/ffhq_1face/"
-    output_json_path = "train_1face_annotations.json"
+    # image_dir = "/data/xiaoshuai/facial_lanmark/ffhq_1face/" 
+    # npy_dir = "/data/xiaoshuai/facial_lanmark/ffhq_1face/"
+    # output_json_path = "train_1face_annotations.json"
+    
+    # image_dir = "/data/xiaoshuai/facial_lanmark/train/" 
+    # npy_dir = "/data/xiaoshuai/facial_lanmark/train/"
+    # output_json_path = "/data/xiaoshuai/facial_lanmark/train/annotations/train_all_annotations.json"
+    
+    image_dir = "/data/xiaoshuai/facial_lanmark/val/" 
+    npy_dir = "/data/xiaoshuai/facial_lanmark/val/"
+    output_json_path = "/data/xiaoshuai/facial_lanmark/val/annotations/train_all_annotations.json"
     
     convert_to_coco_format(image_dir, npy_dir, output_json_path)

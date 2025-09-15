@@ -5,6 +5,8 @@
 *.jpg
 *.png
 *.json
+*.onnx
+*.mnn
 *.egg-info
 app_web.log
 /.git/

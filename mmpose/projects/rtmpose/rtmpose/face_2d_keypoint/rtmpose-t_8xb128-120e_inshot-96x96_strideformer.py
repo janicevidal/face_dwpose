@@ -2,11 +2,11 @@ _base_ = ['mmpose::_base_/default_runtime.py']
 
 # common setting
 num_keypoints = 235
-input_size = (128, 128)
+input_size = (96, 96)
 
 # runtime
-max_epochs = 300
-stage2_num_epochs = 50
+max_epochs = 500
+stage2_num_epochs = 100
 base_lr = 4e-3
 train_batch_size = 128
 val_batch_size = 32
@@ -32,10 +32,10 @@ param_scheduler = [
         end=1000),
     dict(
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.005,
-        begin=30,
+        eta_min=base_lr * 0.001,
+        begin=max_epochs // 2,
         end=max_epochs,
-        T_max=max_epochs - 30,
+        T_max=max_epochs // 2,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
@@ -47,10 +47,12 @@ auto_scale_lr = dict(base_batch_size=512)
 codec = dict(
     type='SimCCLabel',
     input_size=input_size,
-    sigma=(5.66, 5.66),
+    sigma=(3.67, 3.67),
     simcc_split_ratio=2.0,
     normalize=False,
     use_dark=False)
+
+norm_cfg = dict(type='BN', requires_grad=True)
 
 # model settings
 model = dict(
@@ -60,40 +62,38 @@ model = dict(
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
-    backbone=dict(
-        _scope_='mmdet',
-        type='CSPNeXt',
-        arch='P5',
-        expand_ratio=0.5,
-        deepen_factor=0.167,
-        widen_factor=0.375,
-        out_indices=(4, ),
-        channel_attention=True,
-        norm_cfg=dict(type='SyncBN'),
-        act_cfg=dict(type='SiLU'),
+     backbone=dict(
+        type='StrideFormer',
+        mobileV3_cfg=[
+            # k t c, s
+            [[3, 16, 16, True, 'ReLU', 1], [3, 64, 32, False, 'ReLU', 2], [3, 48, 24, False, 'ReLU', 1]],  # cfg1
+            [[5, 96, 32, True, 'HSwish', 2], [5, 96, 32, True, 'HSwish', 1]],  # cfg2
+            [[5, 160, 64, True, 'HSwish', 2], [5, 160, 64, True, 'HSwish', 1]],  # cfg3
+            [[3, 384, 128, True, 'HSwish', 2], [3, 384, 128, True, 'HSwish', 1]],  # cfg4
+        ],
+        channels=[16, 24, 32, 64, 128],
+        depths=[2, 2],
+        embed_dims=[64, 128],
+        num_heads=4,
+        inj_type='AAMSx8',
+        out_channels=128,
+        out_feat_chs=[32, 64, 128],
+        stride_attention=[True, False],
+        act_cfg=dict(type='ReLU6'),
         init_cfg=dict(
             type='Pretrained',
-            prefix='backbone.',
-            checkpoint='https://download.openmmlab.com/mmdetection/v3.0/'
-            'rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e-3a2dd350.pth'  # noqa
+            # prefix='backbone.',
+            checkpoint='/home/zhangxiaoshuai/Pretrained/pp_mobileseg_mobilenetv3_3rdparty-tiny-e4b35e96.pth'
         )),
     head=dict(
         type='RTMCCHead',
-        in_channels=384,
+        in_channels=128,
         out_channels=num_keypoints,
         input_size=codec['input_size'],
-        in_featuremap_size=tuple([s // 32 for s in codec['input_size']]),
+        in_featuremap_size=tuple([s // 8 for s in codec['input_size']]),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=7,
-        gau_cfg=dict(
-            hidden_dims=256,
-            s=128,
-            expansion_factor=2,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='SiLU',
-            use_rel_bias=False,
-            pos_enc=False),
+        final_layer_kernel_size=1,
+        gau_cfg=None,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,

@@ -21,12 +21,8 @@ OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class RTMCCHead(BaseHead):
-    """Top-down head introduced in RTMPose (2023). The head is composed of a
-    large-kernel convolutional layer, a fully-connected layer and a Gated
-    Attention Unit to generate 1d representation from low-resolution feature
-    maps.
-
+class LiteCCHead(BaseHead):
+    """
     Args:
         in_channels (int | sequence[int]): Number of channels in the input
             feature map.
@@ -37,41 +33,22 @@ class RTMCCHead(BaseHead):
             Default: 2.0.
         final_layer_kernel_size (int): Kernel size of the convolutional layer.
             Default: 1.
-        gau_cfg (Config): Config dict for the Gated Attention Unit.
-            Default: dict(
-                hidden_dims=256,
-                s=128,
-                expansion_factor=2,
-                dropout_rate=0.,
-                drop_path=0.,
-                act_fn='ReLU',
-                use_rel_bias=False,
-                pos_enc=False).
         loss (Config): Config of the keypoint loss. Defaults to use
             :class:`KLDiscretLoss`
         decoder (Config, optional): The decoder config that controls decoding
             keypoint coordinates from the network output. Defaults to ``None``
         init_cfg (Config, optional): Config to control the initialization. See
             :attr:`default_init_cfg` for default settings
-    """
-
+    """    
     def __init__(
         self,
         in_channels: Union[int, Sequence[int]],
         out_channels: int,
+        hidden_dims:int,
         input_size: Tuple[int, int],
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         final_layer_kernel_size: int = 1,
-        gau_cfg: ConfigType = dict(
-            hidden_dims=256,
-            s=128,
-            expansion_factor=2,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='ReLU',
-            use_rel_bias=False,
-            pos_enc=False),
         loss: ConfigType = dict(type='KLDiscretLoss', use_target_weight=True),
         decoder: OptConfigType = None,
         init_cfg: OptConfigType = None,
@@ -100,7 +77,7 @@ class RTMCCHead(BaseHead):
                 'multiple input features.')
 
         # Define SimCC layers
-        flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
+        self.flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
 
         self.final_layer = nn.Conv2d(
             in_channels,
@@ -111,40 +88,14 @@ class RTMCCHead(BaseHead):
 
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
-
-        if gau_cfg is not None:
-            self.mlp = nn.Sequential(
-                ScaleNorm(flatten_dims),
-                nn.Linear(flatten_dims, gau_cfg['hidden_dims'], bias=False))
-                    
-            self.gau = RTMCCBlock(
-                self.out_channels,
-                gau_cfg['hidden_dims'],
-                gau_cfg['hidden_dims'],
-                s=gau_cfg['s'],
-                expansion_factor=gau_cfg['expansion_factor'],
-                dropout_rate=gau_cfg['dropout_rate'],
-                drop_path=gau_cfg['drop_path'],
-                attn_type='self-attn',
-                act_fn=gau_cfg['act_fn'],
-                use_rel_bias=gau_cfg['use_rel_bias'],
-                pos_enc=gau_cfg['pos_enc'])
-
-            self.cls_x = nn.Linear(gau_cfg['hidden_dims'], W, bias=False)
-            self.cls_y = nn.Linear(gau_cfg['hidden_dims'], H, bias=False)
         
+        if hidden_dims == self.flatten_dims:
+            self.mlp = nn.Identity()
         else:
-            # hidden_dims = 128
-            hidden_dims = 64
-            
-            self.mlp = nn.Sequential(
-                ScaleNorm(flatten_dims),
-                nn.Linear(flatten_dims, hidden_dims, bias=False))
-            
-            self.gau = nn.Identity()
-            
-            self.cls_x = nn.Linear(hidden_dims, W, bias=False)
-            self.cls_y = nn.Linear(hidden_dims, H, bias=False)
+            self.mlp = nn.Linear(self.flatten_dims, hidden_dims, bias=False)
+        
+        self.cls_x = nn.Linear(hidden_dims , W, bias=False)
+        self.cls_y = nn.Linear(hidden_dims , H, bias=False)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network.
@@ -160,16 +111,11 @@ class RTMCCHead(BaseHead):
             pred_y (Tensor): 1d representation of y.
         """
         feats = feats[-1]
-
         feats = self.final_layer(feats)  # -> B, K, H, W
-
-        # flatten the output heatmap
-        feats = torch.flatten(feats, 2)
-        # feats = feats.reshape(feats.size(0), feats.size(1), 9)
-
+        
+        feats = feats.reshape(feats.size(0), feats.size(1), self.flatten_dims)
+        
         feats = self.mlp(feats)  # -> B, K, hidden
-
-        feats = self.gau(feats)
 
         pred_x = self.cls_x(feats)
         pred_y = self.cls_y(feats)

@@ -1,6 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from .base_head import BaseHead
-from .coord_cls_heads import RTMCCHead, SimCCHead
+from .coord_cls_heads import RTMCCHead, SimCCHead, LiteCCHead
 from .heatmap_heads import (AssociativeEmbeddingHead, CIDHead, CPMHead,
                             HeatmapHead, MSPNHead, ViPNASHead)
 from .hybrid_heads import DEKRHead, VisPredictHead
@@ -13,5 +13,5 @@ __all__ = [
     'RegressionHead', 'IntegralRegressionHead', 'SimCCHead', 'RLEHead',
     'DSNTHead', 'AssociativeEmbeddingHead', 'DEKRHead', 'VisPredictHead',
     'CIDHead', 'RTMCCHead', 'TemporalRegressionHead',
-    'TrajectoryRegressionHead'
+    'TrajectoryRegressionHead', 'LiteCCHead'
 ]

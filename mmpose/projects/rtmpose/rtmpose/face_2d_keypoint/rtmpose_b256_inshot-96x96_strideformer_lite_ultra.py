@@ -2,13 +2,13 @@ _base_ = ['mmpose::_base_/default_runtime.py']
 
 # common setting
 num_keypoints = 235
-input_size = (128, 128)
+input_size = (96, 96)
 
 # runtime
 max_epochs = 300
 stage2_num_epochs = 50
 base_lr = 4e-3
-train_batch_size = 128
+train_batch_size = 256
 val_batch_size = 32
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=1)
@@ -32,10 +32,10 @@ param_scheduler = [
         end=1000),
     dict(
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.005,
-        begin=30,
+        eta_min=base_lr * 0.001,
+        begin=max_epochs // 2,
         end=max_epochs,
-        T_max=max_epochs - 30,
+        T_max=max_epochs // 2,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
@@ -47,10 +47,12 @@ auto_scale_lr = dict(base_batch_size=512)
 codec = dict(
     type='SimCCLabel',
     input_size=input_size,
-    sigma=(5.66, 5.66),
-    simcc_split_ratio=2.0,
+    sigma=(1.835, 1.835),
+    simcc_split_ratio=1.0,
     normalize=False,
     use_dark=False)
+
+norm_cfg = dict(type='BN', requires_grad=True)
 
 # model settings
 model = dict(
@@ -60,40 +62,38 @@ model = dict(
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
-    backbone=dict(
-        _scope_='mmdet',
-        type='CSPNeXt',
-        arch='P5',
-        expand_ratio=0.5,
-        deepen_factor=0.167,
-        widen_factor=0.375,
-        out_indices=(4, ),
-        channel_attention=True,
-        norm_cfg=dict(type='SyncBN'),
-        act_cfg=dict(type='SiLU'),
+     backbone=dict(
+        type='StrideFormer',
+        mobileV3_cfg=[
+            # k t c, s
+            [[3, 32, 16, False, 'ReLU', 2], [3, 48, 16, False, 'ReLU', 1]],  # cfg1
+            [[5, 48, 32, False, 'ReLU', 2], [5, 96, 32, False, 'ReLU', 1]],  # cfg2
+            [[5, 128, 64, False, 'ReLU', 2], [5, 160, 64, False, 'ReLU', 1]],  # cfg3
+            [[3, 256, 96, False, 'ReLU', 2], [3, 256, 96, False, 'ReLU', 1]],  # cfg4
+        ],
+        channels=[16, 16, 32, 64, 96],
+        depths=[1, 1],
+        embed_dims=[64, 96],
+        num_heads=2,
+        inj_type='AAMSx16',
+        out_channels=128,
+        out_feat_chs=[32, 64, 96],
+        stride_attention=[True, False],
+        act_cfg=dict(type='ReLU6'),
         init_cfg=dict(
-            type='Pretrained',
-            prefix='backbone.',
-            checkpoint='https://download.openmmlab.com/mmdetection/v3.0/'
-            'rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e-3a2dd350.pth'  # noqa
+            # type='Pretrained',
+            # prefix='backbone.',
+            # checkpoint='/home/zhangxiaoshuai/Pretrained/pp_mobileseg_mobilenetv3_3rdparty-tiny-e4b35e96.pth'
         )),
     head=dict(
-        type='RTMCCHead',
-        in_channels=384,
+        type='LiteCCHead',
+        in_channels=128,
         out_channels=num_keypoints,
+        hidden_dims=36,
         input_size=codec['input_size'],
-        in_featuremap_size=tuple([s // 32 for s in codec['input_size']]),
+        in_featuremap_size=tuple([s // 16 for s in codec['input_size']]),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=7,
-        gau_cfg=dict(
-            hidden_dims=256,
-            s=128,
-            expansion_factor=2,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='SiLU',
-            use_rel_bias=False,
-            pos_enc=False),
+        final_layer_kernel_size=1,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
@@ -105,7 +105,7 @@ model = dict(
 # base dataset settings
 dataset_type = 'InshotDataset'
 data_mode = 'topdown'
-data_root = '/data/xiaoshuai/facial_lanmark/ldk_1face/'
+data_root = '/data/xiaoshuai/facial_lanmark/'
 
 backend_args = dict(backend='local')
 
@@ -148,7 +148,7 @@ train_pipeline_stage2 = [
     dict(type='LoadImage', backend_args=backend_args),
     dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
-    dict(type='RandomHalfBody'),
+    # dict(type='RandomHalfBody'),
     dict(
         type='RandomBBoxTransform',
         shift_factor=0.,
@@ -185,8 +185,8 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/train_1face_annotations.json',
-        data_prefix=dict(img=''),
+        ann_file='train/annotations/train_all_annotations.json',
+        data_prefix=dict(img='train/'),
         pipeline=train_pipeline,
     ))
 val_dataloader = dict(
@@ -199,7 +199,7 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/coco_face_annotations.json',
+        ann_file='val/annotations/val_all_annotations.json',
         data_prefix=dict(img='val/'),
         test_mode=True,
         pipeline=val_pipeline,
@@ -214,7 +214,7 @@ test_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/coco_face_annotations.json',
+        ann_file='val/annotations/val_all_annotations.json',
         data_prefix=dict(img='val/'),
         test_mode=True,
         pipeline=val_pipeline,
