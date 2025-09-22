@@ -12,7 +12,7 @@ from .base import BasePoseEstimator
 
 
 @MODELS.register_module()
-class TopdownPoseEstimator(BasePoseEstimator):
+class TopdownPosePrealignEstimator(BasePoseEstimator):
     """Base class for top-down pose estimators.
 
     Args:

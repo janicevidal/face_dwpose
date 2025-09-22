@@ -5,9 +5,9 @@ num_keypoints = 235
 input_size = (96, 96)
 
 # runtime
-max_epochs = 300
-stage2_num_epochs = 50
-base_lr = 4e-3
+max_epochs = 420
+stage2_num_epochs = 100
+base_lr = 1e-3
 train_batch_size = 256
 val_batch_size = 32
 
@@ -44,6 +44,12 @@ param_scheduler = [
 auto_scale_lr = dict(base_batch_size=512)
 
 custom_hooks = [
+    dict(
+        type='EMAHook',
+        ema_type='ExpMomentumEMA',
+        momentum=0.0002,
+        update_buffers=True,
+        priority=49),
     dict(type='RepGhostHook')
 ]
 
@@ -51,19 +57,19 @@ custom_hooks = [
 codec = dict(
     type='SimCCLabel',
     input_size=input_size,
-    sigma=(1.835, 1.835),
-    simcc_split_ratio=1.0,
+    sigma=(2.45, 2.45),
+    simcc_split_ratio=1.5,
     normalize=False,
     use_dark=False)
 
 norm_cfg = dict(type='BN', requires_grad=True)
 
-enable_se = True
+enable_se = False
 cfgs_md2_middle = dict(
     cfg = [
         # k, t, c, SE, s
         # stage1
-        [[3, 8, 16, 0, 1]],
+        # [[3, 8, 16, 0, 1]],
         # stage2
         [[3, 24, 24, 0, 2]],
         [[3, 36, 24, 0, 1]],
@@ -87,7 +93,8 @@ cfgs_md2_middle = dict(
             [5, 480, 160, 0, 1],
             [5, 480, 160, 0.25 if enable_se else 0, 1],
         ],
-    ]
+    ],
+    embed_out_indice=[5, 7],
 )
 
 # model settings
@@ -98,27 +105,30 @@ model = dict(
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
-     backbone=dict(
+    backbone=dict(
         type='RepGhostNet',
         cfgs=cfgs_md2_middle['cfg'], 
+        out_indices=cfgs_md2_middle['embed_out_indice'],
         width=0.5,
+        out_channels=96,
+        out_feat_chs=[56, 80],
         deploy=False,
         # deploy=True,
         init_cfg=dict(
             type='Pretrained',
             # prefix='backbone.',
-            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95.pth.tar'
+            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95_modify.pth.tar'
         )
         ),
     head=dict(
-        type='RTMCCHead',
-        in_channels=80,
+        type='LiteCCHead',
+        in_channels=96,
         out_channels=num_keypoints,
+        hidden_dims=36,
         input_size=codec['input_size'],
-        in_featuremap_size=tuple([s // 32 for s in codec['input_size']]),
+        in_featuremap_size=tuple([s // 16 for s in codec['input_size']]),
         simcc_split_ratio=codec['simcc_split_ratio'],
         final_layer_kernel_size=1,
-        gau_cfg=None,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
@@ -135,51 +145,24 @@ data_root = '/data/xiaoshuai/facial_lanmark/'
 backend_args = dict(backend='local')
 
 # pipelines
-train_pipeline = [
-    dict(type='LoadImage', backend_args=backend_args),
-    dict(type='GetBBoxCenterScale'),
-    dict(type='RandomFlip', direction='horizontal'),
-    # dict(type='RandomHalfBody'),
-    dict(
-        type='RandomBBoxTransform', scale_factor=[0.6, 1.4], rotate_factor=80),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
-    dict(type='mmdet.YOLOXHSVRandomAug'),
-    dict(
-        type='Albumentation',
-        transforms=[
-            dict(type='Blur', p=0.1),
-            dict(type='MedianBlur', p=0.1),
-            dict(
-                type='CoarseDropout',
-                max_holes=1,
-                max_height=0.4,
-                max_width=0.4,
-                min_holes=1,
-                min_height=0.2,
-                min_width=0.2,
-                p=1.0),
-        ]),
-    dict(type='GenerateTarget', encoder=codec),
-    dict(type='PackPoseInputs')
-]
 val_pipeline = [
     dict(type='LoadImage', backend_args=backend_args),
-    dict(type='GetBBoxCenterScale'),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
+    dict(type='TopdownAlign', 
+         input_size=codec['input_size'], 
+         shift_prob=0.0, 
+         orient_prob=0.0),
     dict(type='PackPoseInputs')
 ]
 
-train_pipeline_stage2 = [
+train_pipeline = [
     dict(type='LoadImage', backend_args=backend_args),
-    dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
     # dict(type='RandomHalfBody'),
-    dict(
-        type='RandomBBoxTransform',
-        shift_factor=0.,
-        scale_factor=[0.75, 1.25],
-        rotate_factor=60),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
+    dict(type='TopdownAlign', 
+         input_size=codec['input_size'], 
+         offset=0.05, 
+         shift_prob=0.75, 
+         orient_prob=0.75),
     dict(type='mmdet.YOLOXHSVRandomAug'),
     dict(
         type='Albumentation',
@@ -249,19 +232,6 @@ test_dataloader = dict(
 default_hooks = dict(
     checkpoint=dict(
         save_best='NME', rule='less', max_keep_ckpts=3, interval=1))
-
-custom_hooks = [
-    # dict(
-    #     type='EMAHook',
-    #     ema_type='ExpMomentumEMA',
-    #     momentum=0.0002,
-    #     update_buffers=True,
-    #     priority=49),
-    dict(
-        type='mmdet.PipelineSwitchHook',
-        switch_epoch=max_epochs - stage2_num_epochs,
-        switch_pipeline=train_pipeline_stage2)
-]
 
 # evaluators
 val_evaluator = dict(

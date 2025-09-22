@@ -12,6 +12,7 @@ import torch.nn.functional as F
 
 from .base_backbone import BaseBackbone
 
+from mmcv.cnn import ConvModule
 from mmpose.registry import MODELS
 
 def _make_divisible(v, divisor, min_value=None):
@@ -308,13 +309,150 @@ class RepGhostBottleneck(nn.Module):
         return x + self.shortcut(residual)
 
 
+# @MODELS.register_module()
+# class RepGhostNet(BaseBackbone):
+#     def __init__(
+#         self,
+#         cfgs,
+#         width=1.0,
+#         dropout=0.2,
+#         shortcut=True,
+#         reparam=True,
+#         reparam_bn=True,
+#         reparam_identity=False,
+#         deploy=False,
+#         init_cfg=[
+#             dict(type='Kaiming', layer=['Conv2d']),
+#             dict(
+#                 type='Constant',
+#                 val=1,
+#                 layer=['_BatchNorm', 'GroupNorm'])
+#         ], 
+#     ):
+#         super().__init__(init_cfg=init_cfg)
+#         # setting of inverted residual blocks
+#         self.cfgs = cfgs
+#         self.dropout = dropout
+
+#         # building first layer
+#         output_channel = _make_divisible(16 * width, 4)
+#         self.conv_stem = nn.Conv2d(3, output_channel, 3, 2, 1, bias=False)
+#         self.bn1 = nn.BatchNorm2d(output_channel)
+#         self.act1 = nn.ReLU(inplace=True)
+#         input_channel = output_channel
+
+#         # building inverted residual blocks
+#         stages = []
+#         block = RepGhostBottleneck
+#         for cfg in self.cfgs:
+#             layers = []
+#             for k, exp_size, c, se_ratio, s in cfg:
+#                 output_channel = _make_divisible(c * width, 4)
+#                 hidden_channel = _make_divisible(exp_size * width, 4)
+#                 layers.append(
+#                     block(
+#                         input_channel,
+#                         hidden_channel,
+#                         output_channel,
+#                         k,
+#                         s,
+#                         se_ratio=se_ratio,
+#                         shortcut=shortcut,
+#                         reparam=reparam,
+#                         reparam_bn=reparam_bn,
+#                         reparam_identity=reparam_identity,
+#                         deploy=deploy
+#                     ),
+#                 )
+#                 input_channel = output_channel
+#             stages.append(nn.Sequential(*layers))
+
+#         self.blocks = nn.Sequential(*stages)
+
+#     def forward(self, x):
+#         x = self.conv_stem(x)
+#         x = self.bn1(x)
+#         x = self.act1(x)
+#         x = self.blocks(x)
+#         return [x]
+
+#     def convert_to_deploy(self):
+#         repghost_model_convert(self, do_copy=False)
+
+
+class Injection(nn.Module):
+    """the Aggregate Attention Module.
+
+    Args:
+        in_channels (tuple): the input channel.
+        out_channels (int): the output channel.
+        act_cfg (dict): Config dict for activation layer.
+            Default: dict(type='ReLU').
+        norm_cfg (dict): Config dict for normalization layer.
+            Default: dict(type='BN')
+    """
+
+    def __init__(
+            self,
+            in_channels=(256, 384),
+            out_channels=256,
+            act_cfg=dict(type='Sigmoid'),
+            norm_cfg=dict(type='BN'),
+    ):
+        super().__init__()
+        self.embedding_s4 = ConvModule(
+                        in_channels=in_channels[0],
+                        out_channels=out_channels,
+                        kernel_size=1,
+                        bias=False,
+                        norm_cfg=norm_cfg,
+                        act_cfg=None,
+                    )
+        self.embedding_s5 = ConvModule(
+                        in_channels=in_channels[1],
+                        out_channels=out_channels,
+                        kernel_size=1,
+                        bias=False,
+                        norm_cfg=norm_cfg,
+                        act_cfg=None,
+                    )
+        self.act_embedding = ConvModule(
+                        in_channels=in_channels[1],
+                        out_channels=out_channels,
+                        kernel_size=1,
+                        bias=False,
+                        norm_cfg=norm_cfg,
+                        act_cfg=act_cfg,
+                    )
+    def forward(self, inputs):
+        # x_x16, x_x32
+        low_feat1 = self.embedding_s4(inputs[0])
+
+        high_feat_act = F.interpolate(
+            self.act_embedding(inputs[1]),
+            size=low_feat1.shape[2:],
+            mode='bilinear',
+        )
+        high_feat = F.interpolate(
+            self.embedding_s5(inputs[1]),
+            size=low_feat1.shape[2:],
+            mode='bilinear')
+
+        res = high_feat_act * low_feat1 + high_feat
+
+        return res
+
+    
 @MODELS.register_module()
 class RepGhostNet(BaseBackbone):
     def __init__(
         self,
         cfgs,
+        out_indices,
         width=1.0,
-        dropout=0.2,
+        dropout=0.0,
+        out_channels=256,
+        out_feat_chs=None,
         shortcut=True,
         reparam=True,
         reparam_bn=True,
@@ -332,6 +470,7 @@ class RepGhostNet(BaseBackbone):
         # setting of inverted residual blocks
         self.cfgs = cfgs
         self.dropout = dropout
+        self.out_indices = out_indices
 
         # building first layer
         output_channel = _make_divisible(16 * width, 4)
@@ -341,10 +480,13 @@ class RepGhostNet(BaseBackbone):
         input_channel = output_channel
 
         # building inverted residual blocks
-        stages = []
+        self.layers = []
         block = RepGhostBottleneck
-        for cfg in self.cfgs:
+        for i, cfg in enumerate(cfgs):
             layers = []
+            # layer_name = 'layer{}'.format(i + 1)
+            # layer_name = 'blocks{}'.format(i)
+            layer_name = 'blocks{}'.format(i + 1)
             for k, exp_size, c, se_ratio, s in cfg:
                 output_channel = _make_divisible(c * width, 4)
                 hidden_channel = _make_divisible(exp_size * width, 4)
@@ -364,16 +506,27 @@ class RepGhostNet(BaseBackbone):
                     ),
                 )
                 input_channel = output_channel
-            stages.append(nn.Sequential(*layers))
-
-        self.blocks = nn.Sequential(*stages)
+            
+            self.add_module(layer_name, nn.Sequential(*layers))
+            self.layers.append(layer_name)
+            
+        self.inj_module = Injection(in_channels=out_feat_chs, out_channels=out_channels)
 
     def forward(self, x):
         x = self.conv_stem(x)
         x = self.bn1(x)
         x = self.act1(x)
-        x = self.blocks(x)
-        return [x]
+        
+        outs = []
+        for i, layer_name in enumerate(self.layers):
+            layer = getattr(self, layer_name)
+            x = layer(x)
+            if i in self.out_indices:
+                outs.append(x)
+        
+        output = self.inj_module(outs)
+        
+        return [output]
 
     def convert_to_deploy(self):
         repghost_model_convert(self, do_copy=False)

@@ -51,14 +51,14 @@ custom_hooks = [
 codec = dict(
     type='SimCCLabel',
     input_size=input_size,
-    sigma=(1.835, 1.835),
-    simcc_split_ratio=1.0,
+    sigma=(2.45, 2.45),
+    simcc_split_ratio=1.5,
     normalize=False,
     use_dark=False)
 
 norm_cfg = dict(type='BN', requires_grad=True)
 
-enable_se = True
+enable_se = False
 cfgs_md2_middle = dict(
     cfg = [
         # k, t, c, SE, s
@@ -87,7 +87,8 @@ cfgs_md2_middle = dict(
             [5, 480, 160, 0, 1],
             [5, 480, 160, 0.25 if enable_se else 0, 1],
         ],
-    ]
+    ],
+    embed_out_indice=[6, 8],
 )
 
 # model settings
@@ -98,27 +99,30 @@ model = dict(
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
-     backbone=dict(
+    backbone=dict(
         type='RepGhostNet',
         cfgs=cfgs_md2_middle['cfg'], 
+        out_indices=cfgs_md2_middle['embed_out_indice'],
         width=0.5,
+        out_channels=96,
+        out_feat_chs=[56, 80],
         deploy=False,
         # deploy=True,
-        init_cfg=dict(
-            type='Pretrained',
-            # prefix='backbone.',
-            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95.pth.tar'
-        )
+        # init_cfg=dict(
+        #     type='Pretrained',
+        #     # prefix='backbone.',
+        #     checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95.pth.tar'
+        # )
         ),
     head=dict(
-        type='RTMCCHead',
-        in_channels=80,
+        type='LiteCCHead',
+        in_channels=96,
         out_channels=num_keypoints,
+        hidden_dims=36,
         input_size=codec['input_size'],
-        in_featuremap_size=tuple([s // 32 for s in codec['input_size']]),
+        in_featuremap_size=tuple([s // 16 for s in codec['input_size']]),
         simcc_split_ratio=codec['simcc_split_ratio'],
         final_layer_kernel_size=1,
-        gau_cfg=None,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,

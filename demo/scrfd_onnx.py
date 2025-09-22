@@ -122,9 +122,9 @@ class SCRFD:
             self._num_anchors = 1
             self.use_kps = True
 
-    def prepare(self, ctx_id, **kwargs):
-        if ctx_id < 0:
-            self.session.set_providers(['CPUExecutionProvider'])
+    def prepare(self, **kwargs):
+        # if ctx_id < 0:
+        #     self.session.set_providers(['CPUExecutionProvider'])
         nms_thresh = kwargs.get('nms_thresh', None)
         if nms_thresh is not None:
             self.nms_thresh = nms_thresh

@@ -7,6 +7,7 @@
 *.json
 *.onnx
 *.mnn
+*.pth
 *.egg-info
 app_web.log
 /.git/
