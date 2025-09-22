@@ -17,3 +17,4 @@ test.log.txt
 .flask_cache/
 __pycache__/
 mmpose/mmpose/.mim/
+mmdeploy
