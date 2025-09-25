@@ -84,7 +84,9 @@ def eval(pred_folder_names):
 
 if __name__ == "__main__":
 
-    eval(["test"])  # zxs 0.0363(mnn) 0.0340(onnx)
+    # eval(["test"])  # zxs 0.0363(mnn) 0.0340(onnx)
+    eval(["test_ipr"])  # zxs_ipr 0.031686 (onnx)
+    # eval(["test_ipr_358"])  # zxs_ipr 0.03172(onnx)
     # eval(["test_two"])  # zxs 0.0373
     
     # eval(["ghostnetv2_dot_25x"]) # 0.0536

@@ -46,6 +46,10 @@ def ssfd(camera):
         model_file=
         '/Users/user/Project/FacialLandmark/demo_web/onnx/end2end_slim.onnx')
     
+    # landmarker = PreAlignDWPOSE(
+    #     model_file=
+    #     '/Users/user/Project/FacialLandmark/demo_web/onnx/end2end_slim_simcc.onnx')
+    
     detector.prepare()
     
     # box_matcher = SeqBoxMatcher()
@@ -93,7 +97,8 @@ def ssfd(camera):
                 dtype=np.float32
             )
             
-            kpss,_ = landmarker.infer(frame, four_landmarks)
+            # kpss,_ = landmarker.infer(frame, four_landmarks, head="simcc")
+            kpss,_ = landmarker.infer(frame, four_landmarks, head="ipr")
             
             pts_235.append(kpss[0])
         
@@ -120,7 +125,7 @@ def video_feed():
                         mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Face Detection')
+    parser = argparse.ArgumentParser(description='Face Landmark Detection')
     parser.add_argument('--model', type=str, default='ssfd')
     args = parser.parse_args()
     model = args.model

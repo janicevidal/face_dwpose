@@ -198,11 +198,53 @@ class PreAlignDWPOSE:
         
         return (simcc_x_numpy, simcc_y_numpy)
 
-    def infer(self, img, ldm):
+    def postprocess_ipr(
+        self,
+        outputs,
+        M_inv,
+        B_inv
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Postprocess for RTMPose model output.
+
+        Args:
+            outputs (np.ndarray): Output of RTMPose model.
+            model_input_size (tuple): RTMPose model Input image size.
+            simcc_split_ratio (float): Split ratio of simcc.
+
+        Returns:
+            tuple:
+            - keypoints (np.ndarray): Rescaled keypoints.
+            - scores (np.ndarray): Model predict scores.
+        """
+        # decode simcc
+        keypoints = outputs
+        keypoints = keypoints * 96
+
+        # rescale keypoints
+        keypoints = np.expand_dims((np.matmul(M_inv, (keypoints[0]).T + B_inv)).T, axis=0)
+        
+        return keypoints, None
+
+    def forward_ipr(self, img):
+        input_size = tuple(img.shape[0:2][::-1])
+        
+        blob = img.transpose(2, 0, 1)
+        blob = np.expand_dims(blob, 0)
+        
+        net_outs = self.session.run(self.output_names, {self.input_name: blob})
+        
+        coords_numpy = net_outs[0]
+        
+        return coords_numpy
+    
+    def infer(self, img, ldm, head):
         img_align, MB, M_inv, B_inv = self.preprocess(img, ldm)
         
-        outputs = self.forward(img_align)
-        
-        kpts, score = self.postprocess(outputs, M_inv, B_inv, simcc_split_ratio=1.5)
+        if head == "simcc":
+            outputs = self.forward(img_align)
+            kpts, score = self.postprocess(outputs, M_inv, B_inv, simcc_split_ratio=1.5)
+        elif head == "ipr":
+            outputs = self.forward_ipr(img_align)
+            kpts, score = self.postprocess_ipr(outputs, M_inv, B_inv)
         
         return kpts, score

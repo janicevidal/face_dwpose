@@ -169,13 +169,13 @@ class FaceAlign(object):
             # 下一阶段 人脸对齐
             # -------------------
             img = cv2.imread(imgf)
-            kpss, scores = self.align_predictor.infer(img, four_landmarks)
+            kpss, scores = self.align_predictor.infer(img, four_landmarks, head="ipr")
             
             basename = os.path.basename(imgf)
             
             if kpss is not None:
                 kps = kpss[0]
-                score = scores[0]
+                # score = scores[0]
                 
                 # print(kps[0], score[0])
                 # print(kps[1], score[1])
@@ -287,7 +287,7 @@ def pred_landmark235():
 
     # images = ["/data/caiachang/video-ldms-ok/TEST/ffhq/00023.jpg"]
     
-    test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test/"
+    test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr/"
     # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_score/"
     if not os.path.exists(test_savedir):
         os.makedirs(test_savedir)

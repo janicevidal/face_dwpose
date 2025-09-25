@@ -5,9 +5,12 @@ from functools import partial
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import dsntnn
+import numpy as np
 
 from mmpose.registry import MODELS
 from ..utils.realnvp import RealNVP
+from .classification_loss import KLDiscretLoss
 
 
 @MODELS.register_module()
@@ -616,3 +619,256 @@ class SemiSupervisionLoss(nn.Module):
         losses['bone_loss'] = loss_bone
 
         return losses
+
+
+@MODELS.register_module()
+class DSNTLoss(nn.Module):
+    """SmoothL1Loss loss.
+
+    Args:
+        use_target_weight (bool): Option to use weighted MSE loss.
+            Different joint types may have different target weights.
+        loss_weight (float): Weight of the loss. Default: 1.0.
+    """
+
+    def __init__(self, use_target_weight=False, sigma = 1, mse_weight=1,js_weight = 1, is_dsnt = True):
+        super().__init__()
+        
+        self.mse = dsntnn.euclidean_losses
+        self.js = dsntnn.js_reg_losses
+        self.avg = dsntnn.average_loss
+
+        self.use_target_weight = use_target_weight
+        self.mse_weight = mse_weight
+        self.js_weight = js_weight
+        self.sigma = sigma
+
+    def forward(self, output, target, heatmap, target_weight=None): # 预测坐标，gt坐标，预测热图， (n,num_joints,h,w)
+        """Forward function.
+
+        Note:
+            - batch_size: N
+            - num_keypoints: K
+            - dimension of keypoints: D (D=2 or D=3)
+
+        Args:
+            output (torch.Tensor[N, K, D]): Output regression.
+            target (torch.Tensor[N, K, D]): Target regression.
+            target_weight (torch.Tensor[N, K, D]):
+                Weights across different joint types.
+        """
+        if self.use_target_weight:
+            assert target_weight is not None
+            print(output.size())
+            print(target_weight.size())
+            print(target.size())
+            print(heatmap.size())
+            mse_loss = self.mse(output * target_weight,
+                                  target * target_weight)
+        else:
+            mse_loss = self.mse(output, target)
+        js_loss = self.js(heatmap, target, sigma_t=self.sigma)
+
+        loss = self.avg(self.mse_weight*mse_loss + self.js_weight*js_loss)
+
+        return loss
+    
+    
+@MODELS.register_module()
+class SimCC_DSNTRLE_Loss(nn.Module):
+    """
+        rle + dsnt + simcc
+    """
+
+    def __init__(self, dsnt_param, rle_param, simc_param, dsnt_weight, rle_weight, simc_weight):
+        super().__init__()
+        
+        dsnt_use_target_weight = getattr(dsnt_param, 'use_target_weight', True)
+        sigma = getattr(dsnt_param, 'sigma', 0.25)
+        mse_weight = getattr(dsnt_param, 'mse_weight' ,1)
+        js_weight = getattr(dsnt_param, 'js_weight' ,1)
+        self.dsnt = DSNTLoss(dsnt_use_target_weight, sigma, mse_weight, js_weight)
+
+        rle_use_target_weight = getattr(rle_param, 'use_target_weight', True)
+        size_average = getattr(rle_param, 'size_average', True)
+        residual = getattr(rle_param, 'residual', True)
+        self.rle = RLELoss(rle_use_target_weight, size_average, residual)
+        
+        simc_use_target_weight = getattr(simc_param, 'use_target_weight', True)
+        beta = getattr(simc_param, 'beta', 1.0)
+        label_softmax = getattr(simc_param, 'label_softmax', False)
+        self.simc = KLDiscretLoss(beta=beta, label_softmax=label_softmax, use_target_weight=simc_use_target_weight)
+    
+        self.dw = dsnt_weight
+        self.re = rle_weight
+        self.sw = simc_weight
+
+    def forward(self, pred_simcc, coord, heatmap, gt_simcc, gt, target_weight):
+      
+        dsnt_loss = self.dsnt(coord[...,:2], gt, heatmap, target_weight)
+        rle_loss = self.rle(coord, gt, target_weight)
+        cimc_loss = self.simc(pred_simcc, gt_simcc, target_weight)
+
+        loss = self.dw * dsnt_loss + rle_loss * self.re + cimc_loss * self.sw
+
+        return loss
+
+
+@MODELS.register_module()
+class AnisotropicDirectionLoss(nn.Module):
+    def __init__(self, scale=0.01, loss_lambda=2.0, lambda_mode=1, loss_weight=1):
+        super(AnisotropicDirectionLoss, self).__init__()
+        self.max_node_number = 1000
+        self.scale = scale
+        self.loss_lambda = loss_lambda
+        self.lambda_mode = lambda_mode
+        self.edge_info = (
+                (False, (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36)), # FaceContour
+                (True, (37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56)), # 左眼眉毛
+                (True, (57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76)), # 右眼眉毛
+                (True, (77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100)), # LeftEyebrow
+                (True, (101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124)), # RightEyebrow
+                (True, (125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137)), # Nose
+                (False, (138, 139, 140)), # NoseLine
+                (True, (141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176)), # OuterLip
+                (True, (177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200)), # InnerLip
+                # (False, (201)), # 左眼瞳孔
+                # (False, (202)), # 右眼瞳孔
+                (True, (203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218)), # LeftEye
+                (True, (219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234)), # RightEye
+            )
+        self.neighbors = self._get_neighbors(self.edge_info)
+        self.bins = list()
+        self.max_bins = 1000
+        self.loss_weight = loss_weight
+
+    def __repr__(self):
+        return "AnisotropicDirectionLoss()"
+
+    def _get_neighbors(self, edge_info):
+        neighbors = np.arange(self.max_node_number)[:,np.newaxis].repeat(3, axis=1)
+        for is_closed, indices in edge_info:
+            n = len(indices)
+            for i in range(n):
+                cur_id = indices[i]
+                pre_id = indices[(i-1)%n]
+                nex_id = indices[(i+1)%n]
+                if not is_closed:
+                    if i == 0:
+                        pre_id = nex_id
+                    elif i == n-1:
+                        nex_id = pre_id
+                neighbors[cur_id][0] = cur_id
+                neighbors[cur_id][1] = pre_id
+                neighbors[cur_id][2] = nex_id
+        return neighbors
+
+    def _inverse_vector(self, vector):
+        """
+        input: b x n x 2
+        output: b x n x 2
+        """
+        inversed_vector = torch.stack((-vector[:,:,1], vector[:,:,0]), dim=-1)
+        return inversed_vector
+
+    def _get_normals_from_neighbors(self, landmarks):
+        # input: b x n x 2
+        # output: # b x n x 2
+        point_num = landmarks.shape[1]
+        itself = self.neighbors[0:point_num, 0]
+        previous_neighbors = self.neighbors[0:point_num, 1]
+        next_neighbors = self.neighbors[0:point_num, 2]
+    
+        # condition 1
+        bi_normal_vector = F.normalize(landmarks[:, previous_neighbors] - landmarks[:, itself], p=2, dim=-1) + \
+                           F.normalize(landmarks[:, next_neighbors] - landmarks[:, itself], p=2, dim=-1)
+        # condition 2
+        previous_tangent_vector = landmarks[:, previous_neighbors] - landmarks[:, itself]
+        next_tangent_vector = landmarks[:, next_neighbors] - landmarks[:, itself]
+    
+        normal_vector = torch.where(previous_tangent_vector == next_tangent_vector, self._inverse_vector(previous_tangent_vector), bi_normal_vector)
+    
+        normal_vector = F.normalize(normal_vector, p=2, dim=-1)
+        return normal_vector
+
+    def _make_grid(self, h, w):
+        yy, xx = torch.meshgrid(
+            torch.arange(h).float() / (h-1)*2-1,
+            torch.arange(w).float() / (w-1)*2-1)
+        return yy, xx
+
+    def _get_loss_lambda(self, pv_gt, normal_force, tangent_force, normal_vector, tangent_vector, lambda_mode=2):
+        # fix
+        if lambda_mode == 1:
+            # 1
+            loss_lambda = self.loss_lambda
+        # dynamic
+        elif lambda_mode == 2:
+            loss_lambda = torch.clamp(tangent_force.pow(2) / torch.clamp(normal_force.pow(2), min=1e-6), min=1.0, max=9.0)
+            # b x n
+            loss_lambda = loss_lambda.detach()
+        # statistic
+        elif lambda_mode == 4:
+            cur_loss_lambda = tangent_force.pow(2) / torch.clamp(normal_force.pow(2), min=1e-6) # b x n
+            self.bins.extend(cur_loss_lambda.tolist()) # (1000 x b) x n
+            while len(self.bins) > self.max_bins:
+                del self.bins[0]
+            loss_lambda = torch.tensor(self.bins).to(pv_gt) # (1000 x b) x n
+            loss_lambda = loss_lambda.mean(dim=0, keepdim=True) # 1 x n
+            loss_lambda = torch.clamp(loss_lambda, min=1.0, max=9.0)
+            # 1 x n
+            loss_lambda = loss_lambda.detach()
+        # statistic
+        elif lambda_mode == 5:
+            self.bins.extend(pv_gt.tolist()) # (1000 x b) x n x 2
+            while len(self.bins) > self.max_bins:
+                del self.bins[0]
+            direction = torch.tensor(self.bins).to(pv_gt) # (1000 x b) x n x 2
+            dx = direction[:, :, 0] # (1000 x b) x n
+            dy = direction[:, :, 1] # (1000 x b) x n
+            dx = dx * dy.sign() # (1000 x b) x n
+            dy = dy.abs() # (1000 x b) x n
+            dx = dx.sum([0]) # n
+            dy = dy.sum([0]) # n
+            tangent_vector = torch.stack([dx, dy], dim=-1) # n x 2
+            tangent_vector = F.normalize(tangent_vector, p=2, dim=-1) # n x 2
+            normal_vector = torch.stack((-tangent_vector[:,1], tangent_vector[:,0]), dim=-1) # n x 2
+
+            normal_std2 = torch.mul(direction, normal_vector.unsqueeze(0)).sum(dim=-1).pow(2).sum(dim=0) # n
+            tangent_std2 = torch.mul(direction, tangent_vector.unsqueeze(0)).sum(dim=-1).pow(2).sum(dim=0) # n
+
+            loss_lambda = torch.clamp(tangent_std2 / torch.clamp(normal_std2, min=1e-6), min=1.0, max=9.0).unsqueeze(0) # 1 x n
+            # 1 x n
+            loss_lambda = loss_lambda.detach()
+        else:
+            assert False
+        return loss_lambda
+
+
+    def forward(self, coord, gt):
+        # [0, 1] to [-1, 1]
+        groundtruth = gt * 2 - 1
+        output = coord * 2 - 1
+
+        normal_vector = self._get_normals_from_neighbors(groundtruth) # b x n x 2, [-1, 1]
+        tangent_vector = self._inverse_vector(normal_vector) # b x n x 2, [-1, 1]
+
+        pv_gt = output - groundtruth # b x n x 2, [-1, 1]
+
+        normal_force = torch.mul(pv_gt, normal_vector).sum(dim=-1, keepdim=False) # b x n
+        tangent_force = torch.mul(pv_gt, tangent_vector).sum(dim=-1, keepdim=False) # b x n
+        
+        loss_lambda = self._get_loss_lambda(pv_gt.detach(), normal_force.detach(), tangent_force.detach(), normal_vector.detach(), tangent_vector.detach(), lambda_mode=self.lambda_mode)
+
+        alpha = 2 * loss_lambda / (loss_lambda + 1.0)
+        belta = 2 * 1 / (loss_lambda + 1.0)
+        delta_2_asy = alpha * normal_force.pow(2) + belta * tangent_force.pow(2) # b x n
+
+        delta_2_sy = pv_gt.pow(2).sum(dim=-1, keepdim=False) # b x n
+
+        delta_2 = torch.where(normal_vector.norm(p=2, dim=-1) < 0.5, delta_2_sy, delta_2_asy)
+
+        delta = delta_2.clamp(min=1e-128).sqrt() # delta_2.sqrt()
+        loss = torch.where(delta < self.scale, 0.5 / self.scale * delta_2, delta - 0.5 * self.scale)
+
+        return self.loss_weight * loss.mean()

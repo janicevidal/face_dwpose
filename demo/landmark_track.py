@@ -9,7 +9,8 @@ class GroupTrack():
         self.with_landmark = True
         self.iou_thres = 0.5
 
-        self.filter = OneEuroFilter()
+        # self.filter = OneEuroFilter()
+        self.filter = OneEuroFilter(min_cutoff=0.5, beta=2.0)
         # self.filter=EmaFilter(0.5)
 
     def calculate(self, img, now_landmarks_set):
