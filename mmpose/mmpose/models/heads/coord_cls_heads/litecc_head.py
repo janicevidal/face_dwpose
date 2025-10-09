@@ -7,6 +7,7 @@ from mmengine.dist import get_dist_info
 from mmengine.structures import PixelData
 from torch import Tensor, nn
 
+from mmpose.models.backbones.blocks import OREPA_1x1
 from mmpose.codecs.utils import get_simcc_normalized
 from mmpose.evaluation.functional import simcc_pck_accuracy
 from mmpose.models.utils.rtmcc_block import RTMCCBlock, ScaleNorm
@@ -52,6 +53,8 @@ class LiteCCHead(BaseHead):
         loss: ConfigType = dict(type='KLDiscretLoss', use_target_weight=True),
         decoder: OptConfigType = None,
         init_cfg: OptConfigType = None,
+        scale_norm: bool = False,
+        rep_conv1x1: bool = False,
     ):
 
         if init_cfg is None:
@@ -64,6 +67,7 @@ class LiteCCHead(BaseHead):
         self.input_size = input_size
         self.in_featuremap_size = in_featuremap_size
         self.simcc_split_ratio = simcc_split_ratio
+        self.scale_norm = scale_norm
 
         self.loss_module = MODELS.build(loss)
         if decoder is not None:
@@ -79,13 +83,19 @@ class LiteCCHead(BaseHead):
         # Define SimCC layers
         self.flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
 
-        self.final_layer = nn.Conv2d(
-            in_channels,
-            out_channels,
-            kernel_size=final_layer_kernel_size,
-            stride=1,
-            padding=final_layer_kernel_size // 2)
+        if rep_conv1x1:
+            self.final_layer = OREPA_1x1(in_channels, out_channels, kernel_size=1, deploy=False)
+        else:
+            self.final_layer = nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=final_layer_kernel_size,
+                stride=1,
+                padding=final_layer_kernel_size // 2)
 
+        if scale_norm:
+            self.norm = ScaleNorm(self.flatten_dims)
+            
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
         
@@ -114,6 +124,9 @@ class LiteCCHead(BaseHead):
         feats = self.final_layer(feats)  # -> B, K, H, W
         
         feats = feats.reshape(feats.size(0), feats.size(1), self.flatten_dims)
+        
+        if self.scale_norm:
+            feats = self.norm(feats)
         
         feats = self.mlp(feats)  # -> B, K, hidden
 

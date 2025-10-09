@@ -1,12 +1,13 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from typing import Optional, Sequence, Tuple, Union
 
+import numpy as np
 import torch
-from mmengine.structures import PixelData
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 from mmpose.models.backbones.blocks import OREPA_1x1
-from mmpose.evaluation.functional import simcc_pck_accuracy
+from mmpose.evaluation.functional import simcc_pck_accuracy, keypoint_pck_accuracy
 from mmpose.models.utils.rtmcc_block import ScaleNorm
 from mmpose.models.utils.tta import flip_coordinates
 from mmpose.registry import KEYPOINT_CODECS, MODELS
@@ -19,7 +20,7 @@ OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class LiteCCIntegralHead(BaseHead):
+class LiteImplicitHead(BaseHead):
     """
     Args:
         in_channels (int | sequence[int]): Number of channels in the input
@@ -52,12 +53,14 @@ class LiteCCIntegralHead(BaseHead):
         loss: ConfigType = dict(type='KLDiscretLoss', use_target_weight=True),
         decoder: OptConfigType = None,
         init_cfg: OptConfigType = None,
-        with_rle: bool = False,
+        with_sihn: bool = False,
         with_debias: bool = False,
         norm_debias: bool = False,
         scale_norm: bool = False,
         rep_conv1x1: bool = False,
+        temperature_vars: bool = False,
         beta: float = 1.0,
+        
         loss_cfg: OptConfigType = None,
     ):
 
@@ -71,11 +74,12 @@ class LiteCCIntegralHead(BaseHead):
         self.input_size = input_size
         self.in_featuremap_size = in_featuremap_size
         self.simcc_split_ratio = simcc_split_ratio
-        self.with_rle = with_rle
+        self.with_sihn = with_sihn
         self.with_debias = with_debias
         self.norm_debias = norm_debias
         self.scale_norm = scale_norm
         self.beta = beta
+        self.temperature_vars = temperature_vars
 
         self.loss_fun = loss
         self.loss_cfg = loss_cfg   
@@ -126,17 +130,54 @@ class LiteCCIntegralHead(BaseHead):
         self.cls_x = nn.Linear(hidden_dims , W, bias=False)
         self.cls_y = nn.Linear(hidden_dims , H, bias=False)
         
-        self.linspace_x = torch.arange(0.0, 1.0 * W, 1) / W
-        self.linspace_y = torch.arange(0.0, 1.0 * H, 1) / H
+        self.linspace_x = torch.arange(0.0, 1.0 * W, 1).reshape(1, 1, W) / W
+        self.linspace_y = torch.arange(0.0, 1.0 * H, 1).reshape(1, 1, H) / H
 
         self.linspace_x = nn.Parameter(self.linspace_x, requires_grad=False)
         self.linspace_y = nn.Parameter(self.linspace_y, requires_grad=False)
         
-        if with_rle:
-            self.avg = nn.AdaptiveAvgPool2d((1, 1))
-            self.fc = nn.Linear(in_channels, out_channels * 2)
+        if self.temperature_vars:
+            self.temperature = nn.Parameter(torch.ones(1))
 
-    def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def _linear_expectation(self, heatmaps: Tensor,
+                            linspace: Tensor) -> Tuple[Tensor, Tensor]:
+        """Calculate linear expectation."""
+
+        B, N, hidden = heatmaps.shape 
+        heatmaps_temp = heatmaps.mul(linspace)
+
+        expectation = torch.sum(heatmaps_temp, dim=2, keepdim=True)
+        expectation_temp = expectation.repeat(1, 1, hidden)
+
+        vars_temp = (linspace - expectation_temp) ** 2
+
+        vars = vars_temp.mul(heatmaps)
+        vars = torch.sum(vars, dim=2, keepdim=True)
+        
+        if self.temperature_vars:
+            vars = vars * self.temperature  
+
+        return expectation, vars
+    
+    
+    def _flat_softmax_sihn(self, featmaps: Tensor) -> Tensor:
+        """Use Softmax to normalize the featmaps in depthwise."""
+        
+        min_feat, _ = torch.min(featmaps, dim=2, keepdim=True)
+        featmaps_input = featmaps - min_feat
+        heatmaps = featmaps_input / featmaps_input.sum(dim=2, keepdim=True)
+        
+        return heatmaps
+    
+    def _flat_softmax(self, featmaps: Tensor) -> Tensor:
+        """Use Softmax to normalize the featmaps in depthwise."""
+        
+        heatmaps = F.softmax(featmaps, dim=2)
+
+        return heatmaps
+        
+        
+    def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward the network.
 
         The input is the featuremap extracted by backbone and the
@@ -158,17 +199,22 @@ class LiteCCIntegralHead(BaseHead):
             feats = self.norm(feats)
         
         feats = self.mlp(feats)  # -> B, K, hidden
+        
+        if self.scale_norm:
+            feats = self.norm(feats)
 
         pred_x = self.cls_x(feats)
         pred_y = self.cls_y(feats)
         
-        pred_x_sfm = (self.beta * pred_x).softmax(dim=-1)
-        pred_y_sfm = (self.beta * pred_y).softmax(dim=-1)
-        # pred_x_sfm = pred_x.softmax(dim=-1)
-        # pred_y_sfm = pred_y.softmax(dim=-1)
+        if self.with_sihn:
+            pred_x_sfm = self._flat_softmax_sihn(pred_x * self.beta)
+            pred_y_sfm = self._flat_softmax_sihn(pred_y * self.beta)
+        else:
+            pred_x_sfm = self._flat_softmax(pred_x * self.beta)
+            pred_y_sfm = self._flat_softmax(pred_y * self.beta)
         
-        simc_pred_x = torch.sum(pred_x_sfm * self.linspace_x, dim=-1).unsqueeze(-1)
-        simc_pred_y = torch.sum(pred_y_sfm * self.linspace_y, dim=-1).unsqueeze(-1)
+        simc_pred_x, var_x = self._linear_expectation(pred_x_sfm, self.linspace_x)
+        simc_pred_y, var_y = self._linear_expectation(pred_y_sfm, self.linspace_y)
         
         # https://zhuanlan.zhihu.com/p/563022818
         if self.with_debias:
@@ -182,18 +228,15 @@ class LiteCCIntegralHead(BaseHead):
             simc_pred_x = C_x / (C_x - 1) * (simc_pred_x - 1 / (2 * C_x))
             simc_pred_y = C_y / (C_y - 1) * (simc_pred_y - 1 / (2 * C_y))
         
-        simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=-1)
-        
-        if self.with_rle: # rle            
-            global_feature = self.avg(x).reshape(-1, self.in_channels)
-            sigma = self.fc(global_feature).reshape(-1, self.out_channels, 2) 
+        if torch.onnx.is_in_onnx_export():
+            simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=-1)
+            return simc_pred
+        else:
+            simc_pred = torch.cat([simc_pred_x, simc_pred_y, var_x, var_y], dim=-1)
             
-            if torch.onnx.is_in_onnx_export():
-                return simc_pred
-            else:
-                return simc_pred, sigma, pred_x, pred_y
-            
-        return simc_pred, torch.zeros(1, 1), pred_x, pred_y
+            return simc_pred, pred_x, pred_y
+            # return simc_pred, pred_x_sfm, pred_y_sfm
+
 
     def predict(self,
                 feats: Tuple[Tensor],
@@ -236,9 +279,9 @@ class LiteCCIntegralHead(BaseHead):
             input_size = batch_data_samples[0].metainfo['input_size']
             _feats, _feats_flip = feats
 
-            _batch_coords, _batch_sigmas, _, _ = self.forward(_feats)
+            _batch_coords, _, _ = self.forward(_feats)
 
-            _batch_coords_flip, _batch_sigmas_flip, _, _ = self.forward(
+            _batch_coords_flip, _, _ = self.forward(
                 _feats_flip)
             _batch_coords_flip = flip_coordinates(
                 _batch_coords_flip,
@@ -248,10 +291,11 @@ class LiteCCIntegralHead(BaseHead):
 
             batch_coords = (_batch_coords + _batch_coords_flip) * 0.5
         else:
-            batch_coords, batch_sigmas, _, _ = self.forward(feats)  # (B, K, D)
+            batch_coords, _, _ = self.forward(feats)  # (B, K, D)
 
         batch_coords.unsqueeze_(dim=1)  # (B, N, K, D)
-        preds = self.decode(batch_coords)
+        batch_coords1 = batch_coords[:, :, :, :2]
+        preds = self.decode(batch_coords1)
 
         return preds
 
@@ -263,7 +307,8 @@ class LiteCCIntegralHead(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
         
-        coords, sigmas, pred_x, pred_y = self.forward(feats)
+        coords, pred_x, pred_y = self.forward(feats)
+        pred_coords = coords[:, :, :2]
 
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
@@ -298,35 +343,27 @@ class LiteCCIntegralHead(BaseHead):
             
             all_keys = self.multi_losses.keys()
     
-            if 'loss_l1' in all_keys:
-                loss_name = 'loss_l1'
+            if 'loss_ihl' in all_keys:
+                loss_name = 'loss_ihl'
                 losses[loss_name] = self.multi_losses[loss_name](coords, gt, keypoint_weights)
             
             if 'loss_adl' in all_keys:
                 loss_name = 'loss_adl'
-                losses[loss_name] = self.multi_losses[loss_name](coords, gt)
-            
-            if 'loss_rle' in all_keys:
-                loss_name = 'loss_rle'
-                losses[loss_name] = self.multi_losses[loss_name](coords, sigmas, gt, keypoint_weights)
-            
-            if 'loss_arle' in all_keys:
-                loss_name = 'loss_arle'
-                losses[loss_name] = self.multi_losses[loss_name](coords, sigmas, gt, keypoint_weights)
+                losses[loss_name] = self.multi_losses[loss_name](pred_coords, gt)
             
             if 'loss_simc' in all_keys:
                 loss_name = 'loss_simc'
                 losses[loss_name] = self.multi_losses[loss_name](pred_simcc, gt_simcc, keypoint_weights)
 
         # calculate accuracy
-        _, avg_acc, _ = simcc_pck_accuracy(
-            output=to_numpy(pred_simcc),
-            target=to_numpy(gt_simcc),
-            simcc_split_ratio=self.simcc_split_ratio,
+        _, avg_acc, _ = keypoint_pck_accuracy(
+            pred=to_numpy(pred_coords),
+            gt=to_numpy(gt),
             mask=to_numpy(keypoint_weights) > 0,
-        )
+            thr=0.05,
+            norm_factor=np.ones((pred_coords.size(0), 2), dtype=np.float32))
 
-        acc_pose = torch.tensor(avg_acc, device=gt_x.device)
+        acc_pose = torch.tensor(avg_acc, device=gt.device)
         losses.update(acc_pose=acc_pose)
 
         return losses

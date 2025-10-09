@@ -281,14 +281,18 @@ def pred_landmark235():
     # pose_model = '/home/zhangxiaoshuai/Project/face_dwpose/mmdeploy_model/mmpose/mnn/end2end_strideformer_slim_no_post.mnn'
     # pose_model = '/home/zhangxiaoshuai/Project/face_dwpose/mmdeploy_model/mmpose/mnn/end2end_topformer_slim_no_post.mnn'
     pose_model = '/home/zhangxiaoshuai/Project/face_dwpose/mmdeploy_model/mmpose/ort/end2end_slim.onnx'
+    # pose_model = '/home/zhangxiaoshuai/Project/face_dwpose/mmdeploy_model/mmpose/ort/end2end_slim_rle_finetune.onnx'
+    # pose_model = '/home/zhangxiaoshuai/Project/face_dwpose/mmdeploy_model/mmpose/ort/end2end_slim_rle_beta_finetune.onnx'
     
     # pose_model = '/home/zhangxiaoshuai/Project/face_dwpose/mmdeploy_model/mmpose/mnn/prealign_96x96_repghost_lite_two_ema.mnn'
     images, gt_npy_files = load_test_data()
 
     # images = ["/data/caiachang/video-ldms-ok/TEST/ffhq/00023.jpg"]
     
-    test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr/"
-    # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_score/"
+    # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr/"
+    # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_finetune/"
+    # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_beta_finetune_420/"
+    test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_beta_scalenorm_finetune_420/"
     if not os.path.exists(test_savedir):
         os.makedirs(test_savedir)
 

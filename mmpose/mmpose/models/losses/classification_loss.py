@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from geomloss import SamplesLoss
 from mmpose.registry import MODELS
 
 
@@ -216,3 +217,73 @@ class InfoNCELoss(nn.Module):
         targets = torch.arange(n, dtype=torch.long, device=features.device)
         loss = F.cross_entropy(logits, targets, reduction='sum')
         return loss * self.loss_weight
+
+
+@MODELS.register_module()
+class SinkhornDistance2D(nn.Module):
+    def __init__(self,
+        use_target_weight=True,
+        size_average: bool = True):
+        super(SinkhornDistance2D, self).__init__()
+        self.use_target_weight = use_target_weight
+        self.size_average = size_average
+
+    def forward(self, pred_hm, gt_hm, target_weight=None):
+        if self.use_target_weight:
+            assert target_weight is not None
+            assert pred_hm.ndim >= target_weight.ndim
+
+            for i in range(pred_hm.ndim - target_weight.ndim):
+                target_weight = target_weight.unsqueeze(-1)
+        
+            pred_hm = pred_hm * target_weight
+            gt_hm = gt_hm * target_weight
+
+        H_pred = torch.sum(pred_hm, dim=3, keepdim=False).to(pred_hm.device) 
+        W_pred = torch.sum(pred_hm, dim=2, keepdim=False).to(pred_hm.device) 
+        pred_hm_2d = torch.cat([H_pred, W_pred], dim=-1)
+
+        H_gt = torch.sum(gt_hm, dim=3, keepdim=False).to(pred_hm.device) 
+        W_gt = torch.sum(gt_hm, dim=2, keepdim=False).to(pred_hm.device) 
+        gt_hm_2d = torch.cat([H_gt, W_gt], dim=-1)
+
+        sinkhorn_loss = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.5)
+                
+        loss = sinkhorn_loss(pred_hm_2d, gt_hm_2d)
+
+        if self.size_average:
+            loss /= len(gt_hm)
+
+        return loss.sum()
+    
+
+@MODELS.register_module()
+class SinkhornDistance(nn.Module):
+    def __init__(self,
+        use_target_weight=True,
+        size_average: bool = True):
+        super(SinkhornDistance, self).__init__()
+        self.use_target_weight = use_target_weight
+        self.size_average = size_average
+
+    def forward(self,  pred_simcc, gt_simcc, target_weight=None):
+        if self.use_target_weight:
+            assert target_weight is not None
+
+            for i in range(pred_simcc.ndim - target_weight.ndim):
+                target_weight = target_weight.unsqueeze(-1)
+        
+            pred_simcc = pred_simcc * target_weight
+            gt_simcc = gt_simcc * target_weight
+
+        sinkhorn_loss = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.5)
+        
+        pred_hm_2d = torch.cat([pred_simcc[0], pred_simcc[1]], dim=-1)
+        gt_hm_2d = torch.cat([gt_simcc[0], gt_simcc[1]], dim=-1)
+                
+        loss = sinkhorn_loss(pred_hm_2d, gt_hm_2d)
+
+        if self.size_average:
+            loss /= len(gt_simcc)
+
+        return loss.sum()

@@ -85,7 +85,12 @@ def eval(pred_folder_names):
 if __name__ == "__main__":
 
     # eval(["test"])  # zxs 0.0363(mnn) 0.0340(onnx)
-    eval(["test_ipr"])  # zxs_ipr 0.031686 (onnx)
+    # eval(["test_ipr"])  # zxs_ipr 0.031686 (onnx)
+    # eval(["test_ipr_finetune"])  # zxs_ipr 0.031434 (onnx)
+    # eval(["test_ipr_beta_finetune"])  # zxs_ipr 0.031421 (onnx)
+    eval(["test_ipr_beta_scalenorm_finetune_420"])  # zxs_ipr 0.031323 (onnx)
+    eval(["test_ipr_beta_scalenorm_finetune"])  # zxs_ipr 0.031342 (onnx)
+    eval(["test_ipr_beta_finetune_420"])  # zxs_ipr 0.031382 (onnx)
     # eval(["test_ipr_358"])  # zxs_ipr 0.03172(onnx)
     # eval(["test_two"])  # zxs 0.0373
     
