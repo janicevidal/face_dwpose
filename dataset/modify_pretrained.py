@@ -32,8 +32,14 @@ def modify_weight_keys(pretrained_weights_path, output_path):
 # 使用示例
 if __name__ == "__main__":
     # 输入文件路径和输出文件路径
-    input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95.pth.tar"
-    output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95_modify.pth.tar"
+    # input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95.pth.tar"
+    # output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95_modify.pth.tar"
+    
+    # input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_1_0x_142M_74.22.pth.tar"
+    # output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_1_0x_142M_74.22_modify.pth.tar"
+    
+    input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_2_0x_516M_78.81.pth.tar"
+    output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_2_0x_516M_78.81_modify.pth.tar"
     
     # 执行修改
     modify_weight_keys(input_path, output_path)

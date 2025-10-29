@@ -292,7 +292,9 @@ def pred_landmark235():
     # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr/"
     # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_finetune/"
     # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_beta_finetune_420/"
-    test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_beta_scalenorm_finetune_420/"
+    # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_beta_scalenorm_finetune_420/"
+    # test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_mle/"
+    test_savedir = "/data/xiaoshuai/facial_lanmark/vis/test_ipr_mle_401/"
     if not os.path.exists(test_savedir):
         os.makedirs(test_savedir)
 

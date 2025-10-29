@@ -32,12 +32,22 @@ param_scheduler = [
         end=1000),
     dict(
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.001,
-        begin=max_epochs // 2,
-        end=max_epochs,
-        T_max=max_epochs // 2,
+        eta_min=0.0002,
+        begin=5,
+        T_max=200,
+        end=200,
         by_epoch=True,
         convert_to_iter_based=True),
+    dict(type='ConstantLR', by_epoch=True, factor=1, begin=200, end=205),
+    dict(
+        type='CosineAnnealingLR',
+        eta_min=0.0002,
+        begin=205,
+        T_max=200,
+        end=405,
+        by_epoch=True,
+        convert_to_iter_based=True),
+    dict(type='ConstantLR', by_epoch=True, factor=1, begin=405, end=420),
 ]
 
 # automatically scaling LR based on the actual training batch size
@@ -55,12 +65,8 @@ custom_hooks = [
 
 # codec settings
 codec = dict(
-    type='SimCCLabel',
-    input_size=input_size,
-    sigma=(2.45, 2.45),
-    simcc_split_ratio=1.5,
-    normalize=False,
-    use_dark=False)
+    type='RegressionLabel',
+    input_size=input_size)
 
 norm_cfg = dict(type='BN', requires_grad=True)
 
@@ -69,7 +75,7 @@ cfgs_md2_middle = dict(
     cfg = [
         # k, t, c, SE, s
         # stage1
-        [[3, 8, 16, 0, 1]],
+        # [[3, 8, 16, 0, 1]],
         # stage2
         [[3, 24, 24, 0, 2]],
         [[3, 36, 24, 0, 1]],
@@ -94,7 +100,7 @@ cfgs_md2_middle = dict(
             [5, 480, 160, 0.25 if enable_se else 0, 1],
         ],
     ],
-    embed_out_indice=[6, 8],
+    embed_out_indice=[5, 7],
 )
 
 # model settings
@@ -111,31 +117,51 @@ model = dict(
         out_indices=cfgs_md2_middle['embed_out_indice'],
         width=0.5,
         out_channels=96,
-        block_shift=0,
         out_feat_chs=[56, 80],
         deploy=False,
         # deploy=True,
         init_cfg=dict(
             type='Pretrained',
-            # prefix='backbone.',
-            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95_modify.pth.tar'
+            prefix='backbone.',
+            checkpoint='/home/zhangxiaoshuai/Checkpoint/FacialLandmark/prealign_96x96_repghost_lite_single_ema_mle_strach/best_NME_epoch_417.pth'
         )
         ),
     head=dict(
-        type='LiteCCHead',
+        type='LiteMLEHead',
         in_channels=96,
         out_channels=num_keypoints,
         hidden_dims=36,
         input_size=codec['input_size'],
         in_featuremap_size=tuple([s // 16 for s in codec['input_size']]),
-        simcc_split_ratio=codec['simcc_split_ratio'],
+        simcc_split_ratio=1.5,
         final_layer_kernel_size=1,
-        loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            label_softmax=True),
-        decoder=codec),
+        loss_cfg=[dict(methods=[dict(type='MLECCLoss',
+                                       use_target_weight=False,
+                                       loss_weight=1.0
+                                       )
+                                ],
+                       name='loss_mle',
+                    ),
+                    dict(methods=[dict(type='AnisotropicDirectionLoss',
+                                       loss_lambda=2.0
+                                       )
+                                ],
+                        name='loss_adl',
+                    ),
+                    dict(methods=[dict(type='RLELoss',
+                                       use_target_weight=False,
+                                       size_average=True, 
+                                       residual=True,
+                                       sigmoid=False,
+                                       )
+                                ],
+                        name='loss_rle',
+                    ),
+                ],
+        loss=None,
+        decoder=codec,
+        scale_norm=True,
+        beta=10),
     test_cfg=dict(flip_test=True, ))
 
 # base dataset settings

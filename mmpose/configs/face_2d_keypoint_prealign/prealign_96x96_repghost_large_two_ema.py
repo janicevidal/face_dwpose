@@ -43,16 +43,6 @@ param_scheduler = [
 # automatically scaling LR based on the actual training batch size
 auto_scale_lr = dict(base_batch_size=512)
 
-custom_hooks = [
-    dict(
-        type='EMAHook',
-        ema_type='ExpMomentumEMA',
-        momentum=0.0002,
-        update_buffers=True,
-        priority=49),
-    dict(type='RepGhostHook')
-]
-
 # codec settings
 codec = dict(
     type='SimCCLabel',
@@ -64,7 +54,7 @@ codec = dict(
 
 norm_cfg = dict(type='BN', requires_grad=True)
 
-enable_se = False
+enable_se = True
 cfgs_md2_middle = dict(
     cfg = [
         # k, t, c, SE, s
@@ -109,21 +99,21 @@ model = dict(
         type='RepGhostNet',
         cfgs=cfgs_md2_middle['cfg'], 
         out_indices=cfgs_md2_middle['embed_out_indice'],
-        width=0.5,
-        out_channels=96,
+        width=2.0,
+        out_channels=320,
         block_shift=0,
-        out_feat_chs=[56, 80],
+        out_feat_chs=[224, 320],
         deploy=False,
         # deploy=True,
         init_cfg=dict(
             type='Pretrained',
             # prefix='backbone.',
-            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95_modify.pth.tar'
+            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_2_0x_516M_78.81_modify.pth.tar'
         )
         ),
     head=dict(
         type='LiteCCHead',
-        in_channels=96,
+        in_channels=320,
         out_channels=num_keypoints,
         hidden_dims=36,
         input_size=codec['input_size'],
@@ -158,7 +148,34 @@ val_pipeline = [
 train_pipeline = [
     dict(type='LoadImage', backend_args=backend_args),
     dict(type='RandomFlip', direction='horizontal'),
-    # dict(type='RandomHalfBody'),
+    dict(type='TopdownAlign', 
+         input_size=codec['input_size'], 
+         offset=0.1, 
+         shift_prob=0.9, 
+         orient_prob=0.9),
+    dict(type='mmdet.YOLOXHSVRandomAug'),
+    dict(
+        type='Albumentation',
+        transforms=[
+            dict(type='Blur', p=0.1),
+            dict(type='MedianBlur', p=0.1),
+            dict(
+                type='CoarseDropout',
+                max_holes=1,
+                max_height=0.4,
+                max_width=0.4,
+                min_holes=1,
+                min_height=0.2,
+                min_width=0.2,
+                p=1.0),
+        ]),
+    dict(type='GenerateTarget', encoder=codec),
+    dict(type='PackPoseInputs')
+]
+
+train_pipeline_stage2 = [
+    dict(type='LoadImage', backend_args=backend_args),
+    dict(type='RandomFlip', direction='horizontal'),
     dict(type='TopdownAlign', 
          input_size=codec['input_size'], 
          offset=0.05, 
@@ -182,6 +199,20 @@ train_pipeline = [
         ]),
     dict(type='GenerateTarget', encoder=codec),
     dict(type='PackPoseInputs')
+]
+
+custom_hooks = [
+    dict(
+        type='EMAHook',
+        ema_type='ExpMomentumEMA',
+        momentum=0.0002,
+        update_buffers=True,
+        priority=49),
+    dict(type='RepGhostHook'),
+    dict(
+        type='mmdet.PipelineSwitchHook',
+        switch_epoch=max_epochs - stage2_num_epochs,
+        switch_pipeline=train_pipeline_stage2)
 ]
 
 # data loaders

@@ -37,11 +37,13 @@ class RLELoss(nn.Module):
                  use_target_weight=False,
                  size_average=True,
                  residual=True,
+                 sigmoid=True,
                  q_distribution='laplace'):
         super(RLELoss, self).__init__()
         self.size_average = size_average
         self.use_target_weight = use_target_weight
         self.residual = residual
+        self.sigmoid = sigmoid
         self.q_distribution = q_distribution
 
         self.flow_model = RealNVP()
@@ -61,7 +63,8 @@ class RLELoss(nn.Module):
             target_weight (Tensor[N, K, D]):
                 Weights across different joint types.
         """
-        sigma = sigma.sigmoid()
+        if self.sigmoid:
+            sigma = sigma.sigmoid()
 
         error = (pred - target) / (sigma + 1e-9)
         # (B, K, 2)

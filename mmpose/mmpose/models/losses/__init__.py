@@ -2,7 +2,7 @@
 from .ae_loss import AssociativeEmbeddingLoss
 from .classification_loss import BCELoss, JSDiscretLoss, KLDiscretLoss, SinkhornDistance
 from .heatmap_loss import (AdaptiveWingLoss, KeypointMSELoss,
-                           KeypointOHKMMSELoss)
+                           KeypointOHKMMSELoss, MLECCLoss)
 from .loss_wrappers import CombinedLoss, MultipleLossWrapper
 from .regression_loss import (BoneLoss, L1Loss, MPJPELoss, MSELoss, RLELoss,
                               SemiSupervisionLoss, SmoothL1Loss, DSNTLoss,
@@ -13,7 +13,7 @@ from .fea import FeaLoss
 
 __all__ = [
     'KeypointMSELoss', 'KeypointOHKMMSELoss', 'SmoothL1Loss', 'WingLoss',
-    'MPJPELoss', 'MSELoss', 'L1Loss', 'BCELoss', 'BoneLoss',
+    'MPJPELoss', 'MSELoss', 'L1Loss', 'BCELoss', 'BoneLoss', 'MLECCLoss',
     'SemiSupervisionLoss', 'SoftWingLoss', 'AdaptiveWingLoss', 'RLELoss',
     'KLDiscretLoss', 'MultipleLossWrapper', 'JSDiscretLoss', 'CombinedLoss', 'SinkhornDistance',
     'AssociativeEmbeddingLoss', 'SoftWeightSmoothL1Loss', 'KDLoss', 'FeaLoss',

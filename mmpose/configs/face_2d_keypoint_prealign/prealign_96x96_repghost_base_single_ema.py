@@ -64,7 +64,7 @@ codec = dict(
 
 norm_cfg = dict(type='BN', requires_grad=True)
 
-enable_se = False
+enable_se = True
 cfgs_md2_middle = dict(
     cfg = [
         # k, t, c, SE, s
@@ -109,21 +109,21 @@ model = dict(
         type='RepGhostNet',
         cfgs=cfgs_md2_middle['cfg'], 
         out_indices=cfgs_md2_middle['embed_out_indice'],
-        width=0.5,
-        out_channels=96,
+        width=1.0,
+        out_channels=192,
         block_shift=0,
-        out_feat_chs=[56, 80],
+        out_feat_chs=[112, 160],
         deploy=False,
         # deploy=True,
         init_cfg=dict(
             type='Pretrained',
             # prefix='backbone.',
-            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_0_5x_43M_66.95_modify.pth.tar'
+            checkpoint='/home/zhangxiaoshuai/Pretrained/repghostnet_1_0x_142M_74.22_modify.pth.tar'
         )
         ),
     head=dict(
         type='LiteCCHead',
-        in_channels=96,
+        in_channels=192,
         out_channels=num_keypoints,
         hidden_dims=36,
         input_size=codec['input_size'],

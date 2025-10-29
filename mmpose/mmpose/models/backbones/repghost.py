@@ -451,6 +451,7 @@ class RepGhostNet(BaseBackbone):
         out_indices,
         width=1.0,
         dropout=0.0,
+        block_shift=1,
         out_channels=256,
         out_feat_chs=None,
         shortcut=True,
@@ -471,6 +472,7 @@ class RepGhostNet(BaseBackbone):
         self.cfgs = cfgs
         self.dropout = dropout
         self.out_indices = out_indices
+        self.block_shift = block_shift
 
         # building first layer
         output_channel = _make_divisible(16 * width, 4)
@@ -486,7 +488,7 @@ class RepGhostNet(BaseBackbone):
             layers = []
             # layer_name = 'layer{}'.format(i + 1)
             # layer_name = 'blocks{}'.format(i)
-            layer_name = 'blocks{}'.format(i + 1)
+            layer_name = 'blocks{}'.format(i + self.block_shift)
             for k, exp_size, c, se_ratio, s in cfg:
                 output_channel = _make_divisible(c * width, 4)
                 hidden_channel = _make_divisible(exp_size * width, 4)

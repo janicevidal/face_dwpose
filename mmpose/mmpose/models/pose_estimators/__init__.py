@@ -3,6 +3,7 @@ from .bottomup import BottomupPoseEstimator
 from .pose_lifter import PoseLifter
 from .topdown import TopdownPoseEstimator
 from .distiller import PoseEstimatorDistiller
+from .distiller_ipr import IntegralPoseEstimatorDistiller
 from .topdown_prealign import TopdownPosePrealignEstimator
 
-__all__ = ['TopdownPoseEstimator', 'BottomupPoseEstimator', 'PoseLifter', 'PoseEstimatorDistiller', 'TopdownPosePrealignEstimator']
+__all__ = ['TopdownPoseEstimator', 'BottomupPoseEstimator', 'PoseLifter', 'PoseEstimatorDistiller', 'IntegralPoseEstimatorDistiller', 'TopdownPosePrealignEstimator']
