@@ -114,6 +114,7 @@ class PackPoseInputs(BaseTransform):
         'bbox_score': 'bbox_scores',
         'keypoints': 'keypoints',
         'keypoints_visible': 'keypoints_visible',
+        'euler_angles': 'euler_angles',
         'lifting_target': 'lifting_target',
         'lifting_target_visible': 'lifting_target_visible',
         'M_inv': 'M_inv',
@@ -133,6 +134,8 @@ class PackPoseInputs(BaseTransform):
         'keypoint_weights': 'keypoint_weights',
         'instance_coords': 'instance_coords',
         'transformed_keypoints_visible': 'keypoints_visible',
+        'euler_angles': 'euler_angles',
+        'euler_labels': 'euler_labels',
     }
 
     # items in `field_mapping_table` will be packed into

@@ -912,3 +912,70 @@ class NME(BaseMetric):
             keepdims=True)
 
         return np.tile(interocular, [1, 2])
+
+
+@METRICS.register_module()
+class EulerMAE(BaseMetric):
+
+    def process(self, data_batch: Sequence[dict],
+                data_samples: Sequence[dict]) -> None:
+        """Process one batch of data samples and predictions. The processed
+        results should be stored in ``self.results``, which will be used to
+        compute the metrics when all batches have been processed.
+
+        Args:
+            data_batch (Sequence[dict]): A batch of data
+                from the dataloader.
+            data_samples (Sequence[dict]): A batch of outputs from
+                the model.
+        """
+        for data_sample in data_samples:
+            # predicted keypoints coordinates, [1, K, D]
+            pred_yaws = data_sample['pred_instances']['euler_yaws']
+            pred_pitchs = data_sample['pred_instances']['euler_pitchs']
+            # ground truth data_info
+            gt = data_sample['gt_instances']
+            # ground truth euler_angles, [1, 3]
+            gt_euler = gt['euler_angles']
+            
+            result = {
+                'pred_yaws': pred_yaws,
+                'pred_pitchs': pred_pitchs,
+                'gt_euler': gt_euler,
+            }
+
+            self.results.append(result)
+
+    def compute_metrics(self, results: list) -> Dict[str, float]:
+        """Compute the metrics from processed results.
+
+        Args:
+            results (list): The processed results of each batch.
+
+        Returns:
+            Dict[str, float]: The computed metrics. The keys are the names of
+            the metrics, and the values are corresponding results.
+        """
+        logger: MMLogger = MMLogger.get_current_instance()
+
+        # pred_coords: [N, K, D]
+        pred_yaws = np.concatenate([result['pred_yaws'] for result in results])
+        pred_pitchs = np.concatenate([result['pred_pitchs'] for result in results])
+        gt_euler = np.concatenate([result['gt_euler'] for result in results])
+        
+        total = len(pred_pitchs)
+        pitch_error = 0.0
+        yaw_error = 0.0
+        
+        for i in range(total):
+            yaw_error += abs(pred_yaws[i] - gt_euler[i][0])
+            pitch_error += abs(pred_pitchs[i] - gt_euler[i][1])
+
+        logger.info(f'Evaluating {self.__class__.__name__}...')
+
+        metrics = dict()
+        metrics['MAE_YAW'] = yaw_error / total
+        metrics['MAE_PITCH'] = pitch_error / total
+        metrics['MAE'] = metrics['MAE_YAW'] + metrics['MAE_PITCH']
+
+        return metrics

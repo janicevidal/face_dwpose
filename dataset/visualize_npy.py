@@ -4,8 +4,20 @@ import glob
 import numpy as np
 
 def main():    
-    input_path = "/data/caiachang/video-ldms-ok/TEST/only1face/" 
-    output_path = '/data/xiaoshuai/facial_lanmark/visualize_test/'
+    # input_path = "/data/caiachang/video-ldms-ok/TEST/only1face/" 
+    # output_path = '/data/xiaoshuai/facial_lanmark/visualize_test/'
+    
+    # input_path = "/data/xiaoshuai/facial_lanmark/ffhq-aug3d/euler-exp/" 
+    # output_path = '/data/xiaoshuai/facial_lanmark/visualize_euler_exp/'
+    
+    # input_path = "/data/xiaoshuai/facial_lanmark/ffhq-aug3d/euler/" 
+    # output_path = '/data/xiaoshuai/facial_lanmark/visualize_euler/'
+    
+    input_path = "/data/xiaoshuai/facial_lanmark/val_1118_resized" 
+    output_path = '/data/xiaoshuai/facial_lanmark/val_1118_resized_visualize/'
+    
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
     
     if input_path.endswith(('jpg', 'jpeg', 'png', 'JPG', 'JPEG', 'PNG')): 
         # input single img path
@@ -33,6 +45,15 @@ def main():
             pdb.set_trace()
         
         infodict = np.load(npy_path, allow_pickle=True).tolist()
+        
+        # print(infodict.keys())
+        # print(infodict["visibility"])
+        # print(infodict["landmark_verified"])
+        # print(infodict["DFSD_facebbox"])
+        # print(infodict["landmarks208"])
+        # import pdb
+        # pdb.set_trace()
+        
         landmarks235 = infodict["landmarks208"]
 
         bboxes = infodict["DFSD_facebbox"]

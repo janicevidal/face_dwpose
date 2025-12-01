@@ -142,8 +142,24 @@ if __name__ == "__main__":
     # npy_dir = "/data/xiaoshuai/facial_lanmark/train/"
     # output_json_path = "/data/xiaoshuai/facial_lanmark/train/annotations/train_all_annotations.json"
     
-    image_dir = "/data/xiaoshuai/facial_lanmark/val/" 
-    npy_dir = "/data/xiaoshuai/facial_lanmark/val/"
-    output_json_path = "/data/xiaoshuai/facial_lanmark/val/annotations/train_all_annotations.json"
+    # image_dir = "/data/xiaoshuai/facial_lanmark/val/" 
+    # npy_dir = "/data/xiaoshuai/facial_lanmark/val/"
+    # output_json_path = "/data/xiaoshuai/facial_lanmark/val/annotations/train_all_annotations.json"
+    
+    # image_dir = "/data/xiaoshuai/facial_lanmark/train_1118/" 
+    # npy_dir = "/data/xiaoshuai/facial_lanmark/train_1118/"
+    # output_json_path = "/data/xiaoshuai/facial_lanmark/train_1118/annotations/train_all_annotations.json"
+    
+    # image_dir = "/data/xiaoshuai/facial_lanmark/val_1118/" 
+    # npy_dir = "/data/xiaoshuai/facial_lanmark/val_1118/"
+    # output_json_path = "/data/xiaoshuai/facial_lanmark/val_1118/annotations/val_all_annotations.json"
+    
+    # image_dir = "/data/xiaoshuai/facial_lanmark/train_1118_resized/" 
+    # npy_dir = "/data/xiaoshuai/facial_lanmark/train_1118_resized/"
+    # output_json_path = "/data/xiaoshuai/facial_lanmark/train_1118_resized/annotations/train_all_annotations.json"
+    
+    image_dir = "/data/xiaoshuai/facial_lanmark/train_1121/" 
+    npy_dir = "/data/xiaoshuai/facial_lanmark/train_1121/"
+    output_json_path = "/data/xiaoshuai/facial_lanmark/train_1121/annotations/train_all_annotations.json"
     
     convert_to_coco_format(image_dir, npy_dir, output_json_path)

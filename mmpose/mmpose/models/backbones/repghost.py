@@ -528,7 +528,7 @@ class RepGhostNet(BaseBackbone):
         
         output = self.inj_module(outs)
         
-        return [output]
+        return [outs[-1], output]
 
     def convert_to_deploy(self):
         repghost_model_convert(self, do_copy=False)
