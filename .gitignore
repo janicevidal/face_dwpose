@@ -8,6 +8,8 @@
 *.onnx
 *.mnn
 *.pth
+*.csv
+*.txt
 *.egg-info
 app_web.log
 /.git/

@@ -309,6 +309,25 @@ class BaseCocoStyleDataset(BaseDataset):
             'raw_ann_info': copy.deepcopy(ann),
         }
 
+        # 添加欧拉角信息
+        if 'euler_angles' in ann:
+            euler_angles = ann['euler_angles']
+            # data_info['euler_angles'] = np.array([
+            #     euler_angles.get('roll', 0.0),
+            #     euler_angles.get('yaw', 0.0), 
+            #     euler_angles.get('pitch', 0.0)
+            # ], dtype=np.float32).reshape(1, 3)
+            data_info['euler_angles'] = np.array([
+                euler_angles.get('yaw', 0.0), 
+                euler_angles.get('pitch', 0.0)
+            ], dtype=np.float32).reshape(1, 2)
+            data_info['has_euler_angles'] = ann.get('has_euler_angles', True)
+        else:
+            # 如果没有欧拉角信息，设置为默认值
+            # data_info['euler_angles'] = np.zeros(3, dtype=np.float32).reshape(1, 3)
+            data_info['euler_angles'] = np.zeros(2, dtype=np.float32).reshape(1, 2)
+            data_info['has_euler_angles'] = False
+
         if 'crowdIndex' in img:
             data_info['crowd_index'] = img['crowdIndex']
 
@@ -369,7 +388,17 @@ class BaseCocoStyleDataset(BaseDataset):
                 if key not in data_info_bu:
                     seq = [d[key] for d in data_infos]
                     if isinstance(seq[0], np.ndarray):
-                        seq = np.concatenate(seq, axis=0)
+                        # 对于欧拉角，保持其数组结构但进行堆叠
+                        if key == 'euler_angles':
+                            seq = np.stack(seq, axis=0)
+                        else:
+                            seq = np.concatenate(seq, axis=0)
+                    elif key == 'has_euler_angles':
+                        # 将布尔值转换为数组
+                        seq = np.array(seq, dtype=bool)
+                    else:
+                        # 其他类型保持原样
+                        pass
                     data_info_bu[key] = seq
 
             # The segmentation annotation of invalid objects will be used
@@ -392,6 +421,9 @@ class BaseCocoStyleDataset(BaseDataset):
                         'img_path': img_info['img_path'],
                         'id': list(),
                         'raw_ann_info': None,
+                        # 'euler_angles': np.zeros((0, 3), dtype=np.float32),  # 空的欧拉角数组
+                        'euler_angles': np.zeros((0, 2), dtype=np.float32),  # 空的欧拉角数组
+                        'has_euler_angles': np.zeros(0, dtype=bool),  # 空的布尔数组
                     }
                     data_list_bu.append(data_info_bu)
 
@@ -433,6 +465,11 @@ class BaseCocoStyleDataset(BaseDataset):
             keypoints = np.zeros((1, num_keypoints, 2), dtype=np.float32)
             keypoints_visible = np.ones((1, num_keypoints), dtype=np.float32)
 
+            # 添加虚拟的欧拉角信息
+            # euler_angles = np.zeros(3, dtype=np.float32)
+            euler_angles = np.zeros(2, dtype=np.float32)
+            has_euler_angles = False
+
             data_list.append({
                 'img_id': det['image_id'],
                 'img_path': img_path,
@@ -441,6 +478,8 @@ class BaseCocoStyleDataset(BaseDataset):
                 'bbox_score': bbox_score,
                 'keypoints': keypoints,
                 'keypoints_visible': keypoints_visible,
+                'euler_angles': euler_angles,
+                'has_euler_angles': has_euler_angles,
                 'id': id_,
             })
 

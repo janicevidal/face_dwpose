@@ -244,6 +244,16 @@ class RandomFlip(BaseTransform):
 
                 results['keypoints'] = keypoints
                 results['keypoints_visible'] = keypoints_visible
+            
+            # flip euler angles
+            if results.get('has_euler_angles', None) is True:
+                assert  self.direction == 'horizontal', "Only horizontal flip is supported for euler angles"
+                if len(results['euler_angles']) == 3:
+                    # roll, yaw, pitch
+                    results['euler_angles'] = results['euler_angles'].copy() * np.array([[-1.0, -1.0, 1.0]], dtype=np.float32)
+                else:
+                    # yaw, pitch
+                    results['euler_angles'] = results['euler_angles'].copy() * np.array([[-1.0, 1.0]], dtype=np.float32)
 
         return results
 
