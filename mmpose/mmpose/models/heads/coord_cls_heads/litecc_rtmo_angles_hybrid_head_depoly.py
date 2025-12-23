@@ -137,6 +137,8 @@ class MultiTaskHybridLiteMLEHead(BaseHead):
         self.cls_x = nn.Linear(hidden_dims , W, bias=False)
         self.cls_y = nn.Linear(hidden_dims , H, bias=False)
         
+        self.merged_linear = nn.Linear(hidden_dims, W + H, bias=False)
+        
         # mnn convert fc to conv
         # self.cls_x_conv_ = nn.Conv2d(hidden_dims, W, kernel_size=1, bias=False)
         # self.cls_y_conv_ = nn.Conv2d(hidden_dims, H, kernel_size=1, bias=False)
@@ -219,7 +221,6 @@ class MultiTaskHybridLiteMLEHead(BaseHead):
         heatmaps = featmaps_input / (featmaps_input.sum(dim=2, keepdim=True)).clamp(min=self.eps)
         
         return heatmaps
-    
     def _flat_softmax(self, featmaps: Tensor) -> Tensor:
         """Use Softmax to normalize the featmaps in depthwise."""
         
@@ -284,85 +285,58 @@ class MultiTaskHybridLiteMLEHead(BaseHead):
         # else:
         #     yaw = self.yaw_fc(euler_feature)  # -> B, yaw_bins
         #     pitch = self.pitch_fc(euler_feature)  # -> B, pitch_bins
+        
         yaw = self.yaw_fc(euler_feature)  # -> B, yaw_bins
         pitch = self.pitch_fc(euler_feature)  # -> B, pitch_bins
             
         pred_yaw = self._linear_expectation_euler(yaw, self.linspace_yaw)
         pred_pitch = self._linear_expectation_euler(pitch, self.linspace_pitch)
         
-        yaw_1 = self.yaw_fc_1(euler_feature)
-        pitch_1 = self.pitch_fc_1(euler_feature)
-        
-        yaw_2 = self.yaw_fc_2(euler_feature)
-        pitch_2 = self.pitch_fc_2(euler_feature)
-        
-        yaw_3 = self.yaw_fc_3(euler_feature)
-        pitch_3 = self.pitch_fc_3(euler_feature)
-        
-        yaw_4 = self.yaw_fc_4(euler_feature)
-        pitch_4 = self.pitch_fc_4(euler_feature)
-        
         # multitask: keypoint coordinates
         x = feats[-1]
-        feats = self.final_layer(x)  # -> B, K, H, W
+        feats_ = self.final_layer(x)  # -> B, K, H, W
         
-        feats = feats.reshape(feats.size(0), feats.size(1), self.flatten_dims)
+        feats_ = feats_.reshape(feats_.size(0), feats_.size(1), self.flatten_dims)
         
         if self.scale_norm:
-            feats = self.norm(feats)
+            feats_ = self.norm(feats_)
         
-        feats = self.mlp(feats)  # -> B, K, hidden
+        feats_ = self.mlp(feats_)  # -> B, K, hidden
         
-        # if torch.onnx.is_in_onnx_export(): 
-        #     feats_ = feats.reshape(self.out_channels, self.flatten_dims, 1, 1)
-        #     pred_x = self.cls_x_conv_(feats_).reshape(1, self.out_channels, self.cls_x.out_features)
-        #     pred_y = self.cls_y_conv_(feats_).reshape(1, self.out_channels, self.cls_y.out_features)
-        # else:   
-        #     pred_x = self.cls_x(feats)
-        #     pred_y = self.cls_y(feats)
+        batch_size, seq_len, _ = feats_.shape
         
-        pred_x = self.cls_x(feats)
-        pred_y = self.cls_y(feats)
+        weight_x = self.cls_x.weight
+        weight_y = self.cls_y.weight
+        weight_x_T = weight_x.T
+        weight_y_T = weight_y.T
+        merged_weight_T = torch.cat([weight_x_T, weight_y_T], dim=1)
+        merged_weight = merged_weight_T.T
+            
+        self.merged_linear.weight.data  = nn.Parameter(merged_weight, requires_grad=False)
+        self.merged_linear.requires_grad_(False)
+        
+        merged = self.merged_linear(feats_)
+        merged_4d = merged.reshape(batch_size, seq_len, 2, 144)
+        
+        permuted = merged_4d.permute(0, 2, 1, 3)
+        
+        pred = permuted.reshape(batch_size, seq_len * 2, 144)
         
         if self.with_sihn:
-            pred_x_sfm = self._flat_softmax_sihn(pred_x * self.beta)
-            pred_y_sfm = self._flat_softmax_sihn(pred_y * self.beta)
+            pred_sfm = self._flat_softmax_sihn(pred * self.beta)
         elif self.with_sihn_relu:
-            pred_x_sfm = F.relu(pred_x * self.beta)
-            pred_y_sfm = F.relu(pred_y * self.beta)
-            pred_x_sfm = pred_x_sfm / (pred_x_sfm.sum(dim=2, keepdim=True)).clamp(min=1e-5)
-            pred_y_sfm = pred_y_sfm / (pred_y_sfm.sum(dim=2, keepdim=True)).clamp(min=1e-5)
+            # pred_sfm = F.relu(pred * self.beta)
+            pred_sfm = F.relu(pred)
+            pred_sfm = pred_sfm / (pred_sfm.sum(dim=2, keepdim=True)).clamp(min=1e-5)
         else:
-            pred_x_sfm = self._flat_softmax(pred_x * self.beta)
-            pred_y_sfm = self._flat_softmax(pred_y * self.beta)
+            pred_sfm = self._flat_softmax(pred * self.beta)
         
-            
-        global_feature = self.avg(x).reshape(-1, self.in_channels)
-        sigmas = self.sigma_fc(global_feature)
+        simc_pred = self._linear_expectation(pred_sfm, self.linspace_x)
         
-        simc_pred_x = self._linear_expectation(pred_x_sfm, self.linspace_x)
-        simc_pred_y = self._linear_expectation(pred_y_sfm, self.linspace_y)
+        # simc_pred = torch.cat([simc_pred[:, :seq_len, :], simc_pred[:, seq_len:, :]], dim=-1) 
+        angle_pred = torch.cat([pred_yaw, pred_pitch], dim=-1)
         
-        # https://zhuanlan.zhihu.com/p/563022818
-        if self.with_debias:
-            if self.norm_debias:
-                C_x = pred_x_sfm.exp().sum(dim=2).unsqueeze(-1)
-                C_y = pred_x_sfm.exp().sum(dim=2).unsqueeze(-1)
-            else:
-                C_x = pred_x.exp().sum(dim=2).unsqueeze(-1)
-                C_y = pred_y.exp().sum(dim=2).unsqueeze(-1)
-                
-            simc_pred_x = C_x / (C_x - 1) * (simc_pred_x - 1 / (2 * C_x))
-            simc_pred_y = C_y / (C_y - 1) * (simc_pred_y - 1 / (2 * C_y))
-        
-        if torch.onnx.is_in_onnx_export():
-            simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=-1)
-            angle_pred = torch.cat([pred_yaw, pred_pitch], dim=-1)
-            return simc_pred, angle_pred
-        else:
-            simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=-1)
-            
-            return simc_pred, sigmas, pred_x_sfm, pred_y_sfm, yaw, pitch, yaw_1, pitch_1, yaw_2, pitch_2, yaw_3, pitch_3, yaw_4, pitch_4, pred_yaw, pred_pitch
+        return simc_pred, angle_pred
 
 
     def predict(self,

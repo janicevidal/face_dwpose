@@ -43,7 +43,7 @@ param_scheduler = [
 # automatically scaling LR based on the actual training batch size
 auto_scale_lr = dict(base_batch_size=512)
 
-load_from = '/home/zhangxiaoshuai/Checkpoint/FacialLandmark/euler_prealign_96x96_lite_mle_finetune/best_NME_epoch_386.pth'
+load_from = '/home/zhangxiaoshuai/Checkpoint/FacialLandmark/multitask_prealign_96x96_lite_mle_hybrid_max64_rdm/epoch_420.pth'
 
 custom_hooks = [
     dict(
@@ -59,8 +59,9 @@ custom_hooks = [
 codec = dict(
     type='RegressionLabelWithAnglesHybrid',
     input_size=input_size,
-    euler_bin=(80, 48),
-    euler_bin_interval=(1, 2, 8, 16, 80))
+    euler_bin=(64, 48),
+    euler_bin_interval=(1, 2, 8, 16, 64),
+    max_angles=64)
 
 norm_cfg = dict(type='BN', requires_grad=True)
 
@@ -155,7 +156,7 @@ model = dict(
                         name='loss_rle',
                     ),
                     dict(methods=[dict(type='mmdet.CrossEntropyLoss',
-                                       loss_weight=1.0
+                                       loss_weight=0.75
                                        )
                                 ],
                         name='loss_angle_ce',
@@ -171,7 +172,7 @@ model = dict(
         decoder=codec,
         scale_norm=True,
         beta=10),
-    test_cfg=dict(flip_test=True, ))
+    test_cfg=dict(flip_test=False, ))
 
 # base dataset settings
 dataset_type = 'InshotDataset'
@@ -193,7 +194,11 @@ val_pipeline = [
 train_pipeline = [
     dict(type='LoadImage', backend_args=backend_args),
     dict(type='RandomFlip', direction='horizontal'),
-    dict(type='RandomDirectionalMasking', mask_prob=1.0, a_min=0.1, a_max=0.5),
+    dict(type='RandomDirectionalMasking', 
+         mask_prob=0.12, 
+         a_min=0.1, 
+         a_max=0.5,
+         min_visible_keypoints_ratio=0.5),
     # dict(type='RandomHalfBody'),
     dict(type='TopdownAlign', 
          input_size=codec['input_size'], 
@@ -221,19 +226,6 @@ train_pipeline = [
 ]
 
 # data loaders
-# train_dataloader = dict(
-#     batch_size=train_batch_size,
-#     num_workers=10,
-#     persistent_workers=True,
-#     sampler=dict(type='DefaultSampler', shuffle=True),
-#     dataset=dict(
-#         type=dataset_type,
-#         data_root=data_root,
-#         data_mode=data_mode,
-#         ann_file='train_1121/annotations/train_angles_annotations.json',
-#         data_prefix=dict(img='train_1121/'),
-#         pipeline=train_pipeline,
-#     ))
 train_dataloader = dict(
     batch_size=train_batch_size,
     num_workers=10,
@@ -243,8 +235,8 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='val_1118/annotations/val_angles_annotations.json',
-        data_prefix=dict(img='val_1118/'),
+        ann_file='train_1121/annotations/train_angles_annotations.json',
+        data_prefix=dict(img='train_1121/'),
         pipeline=train_pipeline,
     ))
 val_dataloader = dict(

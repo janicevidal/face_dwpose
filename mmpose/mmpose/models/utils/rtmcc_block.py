@@ -94,6 +94,7 @@ class ScaleNorm(nn.Module):
         self.scale = dim**-0.5
         self.eps = eps
         self.g = nn.Parameter(torch.ones(1))
+        # self.g = nn.Parameter(torch.ones(1),requires_grad=False)
 
     def forward(self, x):
         """Forward function.
@@ -114,6 +115,7 @@ class ScaleNorm(nn.Module):
             norm = torch.norm(x, dim=-1, keepdim=True)
         norm = norm * self.scale
         return x / norm.clamp(min=self.eps) * self.g
+        # return x / norm.clamp(min=self.eps)
     
 
 # class ScaleNorm(nn.Module):
