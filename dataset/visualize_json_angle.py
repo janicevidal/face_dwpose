@@ -4,10 +4,14 @@ import numpy as np
 import os
 from math import cos, sin
 
-image_dir = "/data/xiaoshuai/facial_lanmark/val_1118/" 
+# image_dir = "/data/xiaoshuai/facial_lanmark/val_1118/" 
 
-# 加载转换后的COCO格式文件
-with open('/data/xiaoshuai/facial_lanmark/val_1118/annotations/val_angles_annotations.json', 'r') as f:
+# # 加载转换后的COCO格式文件
+# with open('/data/xiaoshuai/facial_lanmark/val_1118/annotations/val_angles_annotations.json', 'r') as f:
+#     coco_data = json.load(f)
+
+image_dir = "/data/xiaoshuai/facial_lanmark/train_1226/images/" 
+with open('/data/xiaoshuai/facial_lanmark/train_1226/annotations/train_angles_annotations.json', 'r') as f:
     coco_data = json.load(f)
 
 def draw_axis(img, yaw_, pitch_, roll_, tdx=None, tdy=None, size = 100):
@@ -76,7 +80,7 @@ else:
     print("All images have exactly one annotation")
 
 # 选择一个样本进行可视化
-img_info = coco_data['images'][10]  # 选择第10张图像
+img_info = coco_data['images'][8]  # 选择第10张图像
 annotation = [ann for ann in coco_data['annotations'] if ann['image_id'] == img_info['id']][0]
 
 print(img_info['file_name'])
@@ -86,6 +90,9 @@ image = cv2.imread(os.path.join(image_dir, img_info['file_name']))
 # 绘制bbox
 x, y, w, h = annotation['bbox']
 cv2.rectangle(image, (int(x), int(y)), (int(x+w), int(y+h)), (0, 0, 255), 2)
+
+x, y, w, h = annotation['square']
+cv2.rectangle(image, (int(x), int(y)), (int(x+w), int(y+h)), (0, 255, 255), 2)
 
 # 绘制关键点
 keypoints = annotation['keypoints']

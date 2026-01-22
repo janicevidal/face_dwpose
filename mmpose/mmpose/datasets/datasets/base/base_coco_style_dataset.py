@@ -273,7 +273,11 @@ class BaseCocoStyleDataset(BaseDataset):
         img_w, img_h = img['width'], img['height']
 
         # get bbox in shape [1, 4], formatted as xywh
-        x, y, w, h = ann['bbox']
+        if 'square' in ann:
+            x, y, w, h = ann['square']
+        else:
+            x, y, w, h = ann['bbox']
+            
         x1 = np.clip(x, 0, img_w - 1)
         y1 = np.clip(y, 0, img_h - 1)
         x2 = np.clip(x + w, 0, img_w - 1)

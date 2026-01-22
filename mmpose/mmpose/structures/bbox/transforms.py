@@ -209,17 +209,25 @@ def flip_bbox(bbox: np.ndarray,
         if bbox_format == 'xywh' or bbox_format == 'center':
             bbox_flipped[..., 0] = w - bbox[..., 0] - 1
         elif bbox_format == 'xyxy':
-            bbox_flipped[..., ::2] = w - bbox[..., ::2] - 1
+            # bbox_flipped[..., ::2] = w - bbox[..., ::2] - 1
+            bbox_flipped[..., 0] = w - bbox[..., 2] - 1
+            bbox_flipped[..., 2] = w - bbox[..., 0] - 1
     elif direction == 'vertical':
         if bbox_format == 'xywh' or bbox_format == 'center':
             bbox_flipped[..., 1] = h - bbox[..., 1] - 1
         elif bbox_format == 'xyxy':
-            bbox_flipped[..., 1::2] = h - bbox[..., 1::2] - 1
+            # bbox_flipped[..., 1::2] = h - bbox[..., 1::2] - 1
+            bbox_flipped[..., 1] = h - bbox[..., 3] - 1
+            bbox_flipped[..., 3] = h - bbox[..., 1] - 1
     elif direction == 'diagonal':
         if bbox_format == 'xywh' or bbox_format == 'center':
             bbox_flipped[..., :2] = [w, h] - bbox[..., :2] - 1
         elif bbox_format == 'xyxy':
-            bbox_flipped[...] = [w, h, w, h] - bbox - 1
+            # bbox_flipped[...] = [w, h, w, h] - bbox - 1
+            bbox_flipped[..., 0] = w - bbox[..., 2] - 1  # x1' = w - x2
+            bbox_flipped[..., 1] = h - bbox[..., 3] - 1  # y1' = h - y2
+            bbox_flipped[..., 2] = w - bbox[..., 0] - 1  # x2' = w - x1
+            bbox_flipped[..., 3] = h - bbox[..., 1] - 1  # y2' = h - y1
 
     return bbox_flipped
 

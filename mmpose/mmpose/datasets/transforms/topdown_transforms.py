@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List, Any
 
 import cv2
 import random
@@ -500,7 +500,10 @@ class RandomDirectionalMasking(BaseTransform):
         Returns:
             dict: The result dict with masked image
         """
+        
+        results['aug_masking'] = True
         if random.random() > self.mask_prob:
+            results['aug_masking'] = False
             return results
 
         # Check if keypoints exist
@@ -756,4 +759,1476 @@ class RandomDirectionalMasking(BaseTransform):
         repr_str += f'corner_prob={self.corner_prob}, '
         repr_str += f'min_visible_keypoints_ratio={self.min_visible_keypoints_ratio}, '
         repr_str += f'max_adjustment_iterations={self.max_adjustment_iterations})'
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class EyeConstrainedCoarseDropout(BaseTransform):
+    """Random occlusion augmentation that protects at least half of eye keypoints.
+    
+    This transform randomly places rectangular occlusion patches on the image,
+    ensuring that at least half of the keypoints in each eye region remain visible.
+    The occlusion patches are filled with random colors.
+
+    Required Keys:
+        - img
+        - keypoints (to check eye keypoint visibility)
+
+    Modified Keys:
+        - img
+
+    Args:
+        prob (float): Probability of applying occlusion. Default: 0.5
+        max_occlusions (int): Maximum number of occlusion patches. Default: 3
+        min_size (float): Minimum occlusion size relative to image. Default: 0.1
+        max_size (float): Maximum occlusion size relative to image. Default: 0.3
+        min_aspect_ratio (float): Minimum aspect ratio (width/height). Default: 0.5
+        max_aspect_ratio (float): Maximum aspect ratio (width/height). Default: 2.0
+        max_attempts (int): Maximum attempts to place each occlusion patch. Default: 10
+        random_color (bool): Whether to use random colors. If False, uses zeros. Default: True
+        left_eye_indices (List[int]): Left eye contour keypoint indices (77-100). Default: range(77, 101)
+        right_eye_indices (List[int]): Right eye contour keypoint indices (101-124). Default: range(101, 125)
+        min_visible_ratio (float): Minimum ratio of visible eye keypoints per eye. Default: 0.5
+    """
+
+    def __init__(self,
+                 prob: float = 0.5,
+                 max_occlusions: int = 3,
+                 min_size: float = 0.1,
+                 max_size: float = 0.3,
+                 min_aspect_ratio: float = 0.5,
+                 max_aspect_ratio: float = 2.0,
+                 max_attempts: int = 10,
+                 random_color: bool = True,
+                 left_eye_indices: List[int] = None,
+                 right_eye_indices: List[int] = None,
+                 min_visible_ratio: float = 0.5) -> None:
+        super().__init__()
+        
+        self.prob = prob
+        self.max_occlusions = max_occlusions
+        self.min_size = min_size
+        self.max_size = max_size
+        self.min_aspect_ratio = min_aspect_ratio
+        self.max_aspect_ratio = max_aspect_ratio
+        self.max_attempts = max_attempts
+        self.random_color = random_color
+        self.min_visible_ratio = min_visible_ratio
+        
+        # Set default eye indices if not provided
+        if left_eye_indices is None:
+            self.left_eye_indices = list(range(77, 101))
+        else:
+            self.left_eye_indices = left_eye_indices
+            
+        if right_eye_indices is None:
+            self.right_eye_indices = list(range(101, 125))
+        else:
+            self.right_eye_indices = right_eye_indices
+
+    def _generate_random_rect(self, img_h: int, img_w: int) -> Tuple[int, int, int, int]:
+        """Generate a random rectangle within image bounds.
+        
+        Args:
+            img_h: Image height
+            img_w: Image width
+            
+        Returns:
+            (x1, y1, x2, y2) rectangle coordinates
+        """
+        # Random size
+        size = random.uniform(self.min_size, self.max_size)
+        # Random aspect ratio
+        aspect_ratio = random.uniform(self.min_aspect_ratio, self.max_aspect_ratio)
+        
+        # Calculate width and height
+        if random.random() > 0.5:
+            width = int(size * img_w)
+            height = int(width / aspect_ratio)
+        else:
+            height = int(size * img_h)
+            width = int(height * aspect_ratio)
+        
+        # Ensure minimum dimensions
+        width = max(2, width)
+        height = max(2, height)
+        
+        # Ensure width and height don't exceed image bounds
+        width = min(width, img_w)
+        height = min(height, img_h)
+        
+        # Random position
+        x1 = random.randint(0, img_w - width)
+        y1 = random.randint(0, img_h - height)
+        x2 = x1 + width
+        y2 = y1 + height
+        
+        return (x1, y1, x2, y2)
+
+    def _generate_random_color(self) -> Tuple[int, int, int]:
+        """Generate random RGB color.
+        
+        Returns:
+            (R, G, B) color tuple
+        """
+        return (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+
+    def _is_point_in_rect(self, point: Tuple[float, float], rect: Tuple[int, int, int, int]) -> bool:
+        """Check if a point is inside a rectangle.
+        
+        Args:
+            point: (x, y) coordinates
+            rect: (x1, y1, x2, y2) rectangle coordinates
+            
+        Returns:
+            True if point is inside rectangle
+        """
+        x, y = point
+        x1, y1, x2, y2 = rect
+        return x1 <= x < x2 and y1 <= y < y2
+
+    def _rectangles_overlap(self, rect1: Tuple[int, int, int, int], 
+                           rect2: Tuple[int, int, int, int]) -> bool:
+        """Check if two rectangles overlap.
+        
+        Args:
+            rect1: (x1, y1, x2, y2)
+            rect2: (x1, y1, x2, y2)
+            
+        Returns:
+            True if rectangles overlap
+        """
+        x1_overlap = max(rect1[0], rect2[0])
+        y1_overlap = max(rect1[1], rect2[1])
+        x2_overlap = min(rect1[2], rect2[2])
+        y2_overlap = min(rect1[3], rect2[3])
+        
+        return x1_overlap < x2_overlap and y1_overlap < y2_overlap
+
+    def _check_eye_visibility(self, keypoints: np.ndarray, 
+                             occlusions: List[Tuple[int, int, int, int]]) -> bool:
+        """Check if at least half of each eye's keypoints are visible.
+        
+        Args:
+            keypoints: Keypoints array (N, 2) or (N, 3)
+            occlusions: List of occlusion rectangles
+            
+        Returns:
+            True if visibility constraint is satisfied
+        """
+        # Get eye keypoints
+        left_eye_points = keypoints[self.left_eye_indices, :2]
+        right_eye_points = keypoints[self.right_eye_indices, :2]
+        
+        # Count visible points in left eye
+        left_visible = 0
+        for point in left_eye_points:
+            occluded = False
+            for rect in occlusions:
+                if self._is_point_in_rect(point, rect):
+                    occluded = True
+                    break
+            if not occluded:
+                left_visible += 1
+        
+        # Count visible points in right eye
+        right_visible = 0
+        for point in right_eye_points:
+            occluded = False
+            for rect in occlusions:
+                if self._is_point_in_rect(point, rect):
+                    occluded = True
+                    break
+            if not occluded:
+                right_visible += 1
+        
+        # Calculate ratios
+        left_ratio = left_visible / len(left_eye_points)
+        right_ratio = right_visible / len(right_eye_points)
+        
+        # Check if both eyes meet the minimum visibility ratio
+        return left_ratio >= self.min_visible_ratio and right_ratio >= self.min_visible_ratio
+
+    def _apply_occlusions(self, img: np.ndarray, occlusions: List[Tuple[int, int, int, int]]) -> np.ndarray:
+        """Apply occlusion rectangles to image.
+        
+        Args:
+            img: Input image
+            occlusions: List of occlusion rectangles
+            
+        Returns:
+            Occluded image
+        """
+        occluded_img = img.copy()
+        
+        for rect in occlusions:
+            x1, y1, x2, y2 = rect
+            
+            # Generate random color
+            if self.random_color:
+                color = self._generate_random_color()
+            else:
+                color = (0, 0, 0)  # Black
+            
+            # Apply occlusion
+            if len(occluded_img.shape) == 3:  # Color image
+                occluded_img[y1:y2, x1:x2, :] = color
+            else:  # Grayscale image
+                gray_color = int(0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2])
+                occluded_img[y1:y2, x1:x2] = gray_color
+        
+        return occluded_img
+
+    def transform(self, results: Dict) -> Optional[dict]:
+        """Apply random occlusion with eye protection.
+        
+        Args:
+            results: The result dict
+            
+        Returns:
+            The result dict with occluded image
+        """
+        if results['aug_masking'] is True:
+            return results
+        
+        if random.random() > self.prob:
+            return results
+
+        # Check if keypoints exist
+        if 'transformed_keypoints' not in results:
+            return results
+
+        img = results['img']
+        keypoints = results['transformed_keypoints'][0]  # Assuming single instance
+        
+        img = self._apply_occlusion_to_single_image(img, keypoints)
+        
+        results['img'] = img
+        return results
+
+    def _apply_occlusion_to_single_image(self, img: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
+        """Apply occlusion to a single image with eye visibility constraint.
+        
+        Args:
+            img: Input image
+            keypoints: Keypoints array
+            
+        Returns:
+            Occluded image
+        """
+        img_h, img_w = img.shape[:2]
+        
+        # Determine number of occlusions
+        num_occlusions = random.randint(1, self.max_occlusions)
+        
+        # Try to find valid occlusion configuration
+        for attempt in range(self.max_attempts):
+            occlusions = []
+            
+            # Generate occlusion rectangles
+            for _ in range(num_occlusions):
+                for occl_attempt in range(10):  # Try to place each occlusion
+                    rect = self._generate_random_rect(img_h, img_w)
+                    
+                    # Check if rectangle overlaps with existing occlusions
+                    overlap = any(
+                        self._rectangles_overlap(rect, existing_rect) 
+                        for existing_rect in occlusions
+                    )
+                    
+                    if not overlap:
+                        occlusions.append(rect)
+                        break
+            
+            # Check if we have enough occlusions
+            if len(occlusions) < max(1, num_occlusions // 2):
+                continue  # Try again
+                
+            # Check eye visibility constraint
+            if self._check_eye_visibility(keypoints, occlusions):
+                # Apply occlusions to image
+                return self._apply_occlusions(img, occlusions)
+        
+        # If no valid configuration found, return original image
+        return img
+
+    def __repr__(self) -> str:
+        """Print the basic information of the transform.
+
+        Returns:
+            str: Formatted string.
+        """
+        repr_str = self.__class__.__name__
+        repr_str += f'(prob={self.prob}, '
+        repr_str += f'max_occlusions={self.max_occlusions}, '
+        repr_str += f'min_size={self.min_size}, '
+        repr_str += f'max_size={self.max_size}, '
+        repr_str += f'min_visible_ratio={self.min_visible_ratio}, '
+        repr_str += f'random_color={self.random_color})'
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class TopdownAlignV2(BaseTransform):    
+    def __init__(self,
+                 input_size: Tuple[int, int],
+                 mean_face_path: str,
+                 point_set_types: List[str] = ['four', 'five', 'nineteen', 'twenty_three', 'base', 'val'],
+                 point_set_weights: Optional[List[float]] = None,
+                 max_tries: int = 20,
+                 margin_ratio: float = 0.0,
+                 scale_range: Tuple[float, float] = (0.9, 1.1),
+                 rotation_range: Tuple[float, float] = (-10, 10),
+                 translation_ratio_range: Tuple[float, float] = (-0.05, 0.05), 
+                 jitter_prob: float = 0.8,
+                 interpolation_method: str = 'random',  # 'random', 'linear', 'nearest' 
+        ) -> None:
+        """
+        初始化函数
+        
+        Args:
+            input_size: 输出图像尺寸 (width, height)
+            mean_face_path: 均值人脸npy文件路径
+            point_set_types: 点集类型列表 ['four', 'five', 'nineteen', 'twenty_three', 'base', 'val']
+            point_set_weights: 点集选择的权重，None表示均匀分布
+            max_tries: 最大尝试次数
+            margin_ratio: 边界检查的边距比例
+            scale_range: 缩放抖动范围
+            rotation_range: 旋转角度抖动范围（度数）
+            translation_ratio_range: 平移抖动范围（相对于图像尺寸的比例）
+            jitter_prob: 抖动概率
+        """
+        super().__init__()
+        
+        self.input_size = input_size
+        self.mean_face_path = mean_face_path
+        self.point_set_types = point_set_types
+        self.max_tries = max_tries
+        self.margin_ratio = margin_ratio
+        self.scale_range = scale_range
+        self.rotation_range = rotation_range
+        self.translation_ratio_range = translation_ratio_range
+        self.jitter_prob = jitter_prob
+        self.interpolation_method = interpolation_method
+
+        self.mean_face = self._load_mean_face(mean_face_path)
+        
+        if point_set_weights is None:
+            self.point_set_weights = [1.0 / len(point_set_types)] * len(point_set_types)
+        else:
+            self.point_set_weights = point_set_weights
+
+        self._define_point_sets()
+        
+        self.margin_w = self.input_size[0] * self.margin_ratio
+        self.margin_h = self.input_size[1] * self.margin_ratio
+        
+        self.tx_range = self.input_size[0] * self.translation_ratio_range[0], self.input_size[0] * self.translation_ratio_range[1]
+        self.ty_range = self.input_size[1] * self.translation_ratio_range[0], self.input_size[1] * self.translation_ratio_range[1]
+        
+        self.target_points = self._preprocess_target_points()
+    
+    def _load_mean_face(self, path: str) -> np.ndarray:
+        mean_face = np.load(path)
+        assert mean_face.shape == (235, 2), f"均值人脸应为(235, 2)，实际为{mean_face.shape}"
+        mean_face = mean_face.astype(np.float32)
+
+        return mean_face
+    
+    def _define_point_sets(self):
+        self.eye_left_idx = 201
+        self.eye_right_idx = 202
+        self.nose_tip_idx = 139
+        self.mouth_left_idx = 141
+        self.mouth_right_idx = 159
+        
+        contour_idx = list(range(0, 37, 2))
+        
+        self.point_sets = {
+            'four': [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'five': [self.eye_left_idx, self.eye_right_idx, self.nose_tip_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'nineteen': contour_idx,
+            'twenty_three': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'base': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'val': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx]
+        }
+    
+    def _preprocess_target_points(self) -> np.ndarray:
+        target_points = self.mean_face.copy()
+        target_points[:, 0] = target_points[:, 0] * self.input_size[0]
+        target_points[:, 1] = target_points[:, 1] * self.input_size[1]
+        
+        return target_points
+    
+    def similarity_transform_from_points(self, points1: np.ndarray, points2: np.ndarray) -> Dict[str, Any]:
+        points1 = points1.astype(np.float32)
+        points2 = points2.astype(np.float32)
+        
+        c1 = np.mean(points1, axis=0)
+        c2 = np.mean(points2, axis=0)
+        
+        points1_centered = points1 - c1
+        points2_centered = points2 - c2
+        
+        s1 = np.std(points1_centered) + 1e-8 
+        s2 = np.std(points2_centered) + 1e-8
+        
+        scale = s2 / s1
+        
+        points1_norm = points1_centered / s1
+        points2_norm = points2_centered / s2
+
+        H = np.dot(points1_norm.T, points2_norm)
+        U, S, Vt = np.linalg.svd(H)
+        
+        R = (U @ Vt).T
+        
+        # 确保是纯旋转 没有镜像（det(R) = 1）
+        if np.linalg.det(R) < 0:
+            Vt[-1, :] *= -1
+            R = (U @ Vt).T
+        
+        M = scale * R
+        B = c2.reshape(2, 1) - np.dot(M, c1.reshape(2, 1))
+        
+        rotation_rad = np.arctan2(R[1, 0], R[0, 0])
+        rotation_deg = np.degrees(rotation_rad)
+        
+        affine_matrix = np.hstack((M, B))
+        
+        M_inv = np.linalg.inv(M)
+        # B_inv = -np.dot(M_inv, B)
+        B_inv = -B
+        
+        return {
+            'M': M,
+            'B': B,
+            'R': R,
+            'M_inv': M_inv, 
+            'B_inv': B_inv,
+            'affine_matrix': affine_matrix,
+            'scale': scale,                   # 缩放因子
+            'rotation_deg': rotation_deg,     # 旋转角度
+            'c1': c1,
+            'c2': c2
+        }
+    
+    def jitter_transform_params(self, transform_params: Dict[str, Any]) -> Dict[str, Any]:
+        """ 
+        M = [[a, -b], [b, a]]
+        """
+        if random.random() > self.jitter_prob:
+            return transform_params.copy()
+
+        scale_orig = transform_params['scale']
+        rotation_deg_orig = transform_params['rotation_deg']
+        translation_orig = transform_params['B']
+        
+        c1 = transform_params['c1']  # 源点集中心
+        c2 = transform_params['c2']  # 目标点集中心
+        
+        # 抖动缩放
+        if random.random() > 0.5:
+            scale_jittered = scale_orig * random.uniform(self.scale_range[0], self.scale_range[1])
+        else:
+            scale_jittered = scale_orig
+        # print("scale ", scale_orig, scale_jittered, scale_jittered/scale_orig)
+        
+        # 抖动旋转角度
+        if random.random() > 0.5:
+            rotation_deg_jittered = rotation_deg_orig + random.uniform(self.rotation_range[0], self.rotation_range[1])
+            rotation_rad_jittered = np.radians(rotation_deg_jittered)
+            cos_theta = np.cos(rotation_rad_jittered)
+            sin_theta = np.sin(rotation_rad_jittered)
+            R_jittered = np.array([[cos_theta, -sin_theta],[sin_theta, cos_theta]], dtype=np.float32)
+        else:
+            rotation_deg_jittered = rotation_deg_orig
+            R_jittered = transform_params['R']
+        
+        if (scale_jittered == scale_orig and rotation_deg_jittered == rotation_deg_orig):
+            M_jittered = transform_params['M']
+            M_jittered_inv = transform_params['M_inv']
+            B_translation = transform_params['B']
+        else:
+            M_jittered = scale_jittered * R_jittered
+            M_jittered_inv = np.linalg.inv(M_jittered)
+            B_translation = c2.reshape(2, 1) - np.dot(M_jittered, c1.reshape(2, 1))
+        
+        # print("deg  ", rotation_deg_orig, rotation_deg_jittered, rotation_deg_jittered- rotation_deg_orig)
+        
+        # 抖动平移
+        if random.random() > 0.5:
+            tx_jittered = B_translation[0, 0] + random.uniform(self.tx_range[0], self.tx_range[1])
+            ty_jittered = B_translation[1, 0] + random.uniform(self.ty_range[0], self.ty_range[1])
+        else:
+            tx_jittered, ty_jittered = B_translation[0, 0], B_translation[1, 0]
+             
+        # print("transx ", tx_jittered, B_translation[0, 0], B_translation[0, 0]-tx_jittered)
+        # print("transy ", ty_jittered, B_translation[1, 0], B_translation[1, 0]-ty_jittered)
+        
+        if (scale_jittered == scale_orig and rotation_deg_jittered == rotation_deg_orig and tx_jittered == translation_orig[0, 0] and ty_jittered == translation_orig[1, 0]):
+            return transform_params.copy()
+            
+        B_jittered = np.array([[tx_jittered], [ty_jittered]], dtype=np.float32)
+        B_jittered_inv = -B_jittered
+        
+        affine_matrix_jittered = np.hstack((M_jittered, B_jittered))
+        
+        jittered_params = transform_params.copy()
+        jittered_params.update({
+            'M': M_jittered,
+            'B': B_jittered,
+            'R': R_jittered,
+            'M_inv': M_jittered_inv,
+            'B_inv': B_jittered_inv,
+            'affine_matrix': affine_matrix_jittered,
+            'scale': scale_jittered,
+            'rotation_deg': rotation_deg_jittered
+        })
+        
+        return jittered_params
+    
+    def _count_out_of_bounds_points(self, points: np.ndarray) -> int:
+        w, h = self.input_size        
+        margin_w, margin_h = self.margin_w, self.margin_h
+        
+        x_in_bounds = (points[:, 0] >= margin_w) & (points[:, 0] <= w - margin_w)
+        y_in_bounds = (points[:, 1] >= margin_h) & (points[:, 1] <= h - margin_h)
+        
+        in_bounds_mask = x_in_bounds & y_in_bounds
+        
+        out_of_bounds_count = len(points) - np.sum(in_bounds_mask)
+        
+        return int(out_of_bounds_count)
+    
+    def apply_affine_transform(self, img: np.ndarray, affine_matrix: np.ndarray) -> np.ndarray:
+        if self.interpolation_method == 'random':
+            interpolation = cv2.INTER_LINEAR if random.random() > 0.5 else cv2.INTER_NEAREST
+        elif self.interpolation_method == 'linear':
+            interpolation = cv2.INTER_LINEAR
+        else:  # 'nearest'
+            interpolation = cv2.INTER_NEAREST
+        
+        transformed_img = cv2.warpAffine(img, affine_matrix, self.input_size, flags=interpolation)
+        
+        return transformed_img
+    
+    def _transform_points(self, points: np.ndarray, affine_matrix: np.ndarray) -> np.ndarray:
+        points_homogeneous = np.hstack([points, np.ones((len(points), 1))])
+        transformed_points = np.dot(points_homogeneous, affine_matrix.T)
+        
+        return transformed_points
+    
+    def _generate_random_nineteen(self) -> List[int]:
+        """动态生成随机19点集：每对相邻点随机选一个，18固定"""
+        choices = np.random.randint(0, 2, size=18)
+
+        first_half = 2 * np.arange(9) + choices[:9]
+        second_half = 20 + 2 * np.arange(9) - choices[9:]
+        
+        indices = np.concatenate([first_half, [18], second_half])
+        
+        return indices.tolist()
+
+    def select_point_set(self) -> Tuple[str, List[int]]:
+        point_set_type = random.choices(
+            self.point_set_types, 
+            weights=self.point_set_weights, 
+            k=1
+        )[0]
+        
+        if point_set_type in ['nineteen', 'twenty_three']:
+            indices = self._generate_random_nineteen()
+            
+            if point_set_type == 'twenty_three':
+                indices = indices + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx]
+        else:
+            indices = self.point_sets[point_set_type].copy()
+        
+        return point_set_type, indices
+    
+    def transform(self, results: Dict) -> Optional[dict]:
+        img = results['img']
+        
+        if results.get('keypoints', None) is not None:
+            keypoints = results['keypoints'][0]
+        
+            src_points_all = np.array(keypoints, dtype=np.float32)
+
+            best_out_of_bounds_count = 235
+            match = False
+            
+            for try_num in range(self.max_tries):
+                point_set_type, point_indices = self.select_point_set()
+                
+                src_selected = src_points_all[point_indices].copy()
+                target_selected = self.target_points[point_indices].copy()
+                
+                try:
+                    transform_params = self.similarity_transform_from_points(src_selected, target_selected)
+                except np.linalg.LinAlgError:
+                    continue  # 矩阵奇异，跳过此次尝试
+               
+                transform_params = self.jitter_transform_params(transform_params)
+                
+                transformed_points = self._transform_points(src_points_all, transform_params['affine_matrix'])
+                
+                out_of_bounds_count = self._count_out_of_bounds_points(transformed_points)
+                
+                if out_of_bounds_count == 0 or point_set_type == "val":
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    match = True
+                    break
+                
+                if out_of_bounds_count < best_out_of_bounds_count:
+                    best_out_of_bounds_count = out_of_bounds_count
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    
+            # if not match :
+            #     print(out_transform_params)
+            #     print(out_transformed_points)
+            #     print(best_out_of_bounds_count)
+            #     print(results.keys())
+
+            #     for i in range(out_transformed_points.shape[0]):  # 遍历每一行
+            #         if out_transformed_points[i, 0] < 0 or out_transformed_points[i, 1] < 0:
+            #             print(f"第{i}行：小于0")
+            #         if out_transformed_points[i, 0] > 96 or out_transformed_points[i, 1] > 96:
+            #             print(f"第{i}行：大于 96")
+        
+            #     print(results['img_path'])
+            #     print(results['keypoints'])
+            #     landmarks_path = "out_transformed_points.npy"
+            #     np.save(landmarks_path, out_transformed_points)
+            #     import pdb
+            #     pdb.set_trace()
+                
+            results['img'] = self.apply_affine_transform(img, out_transform_params['affine_matrix'])
+            results['transformed_keypoints'] = np.array([out_transformed_points])
+            
+            results['M_inv'] = np.array([out_transform_params['M_inv']])
+            results['B_inv'] = np.array([out_transform_params['B_inv']])
+        
+        results['input_size'] = self.input_size
+        
+        return results
+    
+    def __repr__(self) -> str:
+        repr_str = self.__class__.__name__
+        repr_str += f'(input_size={self.input_size}, '
+        repr_str += f'point_set_types={self.point_set_types}, '
+        repr_str += f'max_tries={self.max_tries}, '
+        repr_str += f'jitter_prob={self.jitter_prob})'
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class TopdownAlignV3(BaseTransform):    
+    def __init__(self,
+                 input_size: Tuple[int, int],
+                 mean_face_path: str,
+                 point_set_types: List[str] = ['four', 'five', 'nineteen', 'twenty_three', 'base', 'val'],
+                 point_set_weights: Optional[List[float]] = None,
+                 max_tries: int = 20,
+                 margin_ratio: float = 0.0,
+                 scale_range: Tuple[float, float] = (0.9, 1.1),
+                 rotation_range: Tuple[float, float] = (-10, 10),
+                 translation_params: Tuple[float, float] = (0, 3.6), 
+                 jitter_prob: float = 0.8,
+                 interpolation_method: str = 'random',  # 'random', 'linear', 'nearest' 
+        ) -> None:
+        """
+        初始化函数
+        
+        Args:
+            input_size: 输出图像尺寸 (width, height)
+            mean_face_path: 均值人脸npy文件路径
+            point_set_types: 点集类型列表 ['four', 'five', 'nineteen', 'twenty_three', 'base', 'val']
+            point_set_weights: 点集选择的权重，None表示均匀分布
+            max_tries: 最大尝试次数
+            margin_ratio: 边界检查的边距比例
+            scale_range: 缩放抖动范围
+            rotation_range: 旋转抖动范围（度数）
+            translation_params: 平移抖动范围（mu sigma）
+            jitter_prob: 抖动概率
+        """
+        super().__init__()
+        
+        self.input_size = input_size
+        self.mean_face_path = mean_face_path
+        self.point_set_types = point_set_types
+        self.max_tries = max_tries
+        self.margin_ratio = margin_ratio
+        self.scale_range = scale_range
+        self.rotation_range = rotation_range
+        self.translation_params = translation_params
+        self.jitter_prob = jitter_prob
+        self.interpolation_method = interpolation_method
+
+        self.mean_face = self._load_mean_face(mean_face_path)
+        
+        if point_set_weights is None:
+            self.point_set_weights = [1.0 / len(point_set_types)] * len(point_set_types)
+        else:
+            self.point_set_weights = point_set_weights
+
+        self._define_point_sets()
+        self.index_minmax = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 
+                               37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 56, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 127, 128, 129, 132, 133, 134, 139]
+        
+        self.margin_w = self.input_size[0] * self.margin_ratio
+        self.margin_h = self.input_size[1] * self.margin_ratio
+        
+        self.shift_mu = self.translation_params[0]
+        self.shift_sigma = self.translation_params[1]
+        
+        self.target_points, self.mean_center, self.mean_size = self._preprocess_target_points()
+    
+    def _load_mean_face(self, path: str) -> np.ndarray:
+        mean_face = np.load(path)
+        assert mean_face.shape == (235, 2), f"均值人脸应为(235, 2)，实际为{mean_face.shape}"
+        mean_face = mean_face.astype(np.float32)
+
+        return mean_face
+    
+    def _define_point_sets(self):
+        self.eye_left_idx = 201
+        self.eye_right_idx = 202
+        self.nose_tip_idx = 139
+        self.mouth_left_idx = 141
+        self.mouth_right_idx = 159
+        
+        contour_idx = list(range(0, 37, 2))
+        
+        self.point_sets = {
+            'four': [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'five': [self.eye_left_idx, self.eye_right_idx, self.nose_tip_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'nineteen': contour_idx,
+            'twenty_three': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'base': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'val': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx]
+        }
+    
+    def _get_square_box(self, points: np.ndarray) -> Tuple[np.ndarray, float]:
+        x_coords = np.array(points)[:, 0]
+        y_coords = np.array(points)[:, 1]
+        min_x, max_x = np.min(x_coords), np.max(x_coords)
+        min_y, max_y = np.min(y_coords), np.max(y_coords)
+        rect_width = max_x - min_x
+        rect_height = max_y - min_y
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+        
+        square_size = max(rect_width, rect_height)
+        center_point = np.array([center_x, center_y]).astype(np.float32)
+        
+        return center_point, square_size
+    
+    def _preprocess_target_points(self) -> Tuple[np.ndarray, np.ndarray, float]:
+        target_points = self.mean_face.copy()
+        target_points[:, 0] = target_points[:, 0] * self.input_size[0]
+        target_points[:, 1] = target_points[:, 1] * self.input_size[1]
+
+        mean_center, mean_size = self._get_square_box(target_points[self.index_minmax])
+        
+        return target_points, mean_center, mean_size
+    
+    def similarity_transform_from_points(self, points1: np.ndarray, points2: np.ndarray) -> Dict[str, Any]:
+        points1 = points1.astype(np.float32)
+        points2 = points2.astype(np.float32)
+        
+        c1 = np.mean(points1, axis=0)
+        c2 = np.mean(points2, axis=0)
+        
+        points1_centered = points1 - c1
+        points2_centered = points2 - c2
+        
+        s1 = np.std(points1_centered) + 1e-8 
+        s2 = np.std(points2_centered) + 1e-8
+        
+        scale = s2 / s1
+        
+        points1_norm = points1_centered / s1
+        points2_norm = points2_centered / s2
+
+        H = np.dot(points1_norm.T, points2_norm)
+        U, S, Vt = np.linalg.svd(H)
+        
+        R = (U @ Vt).T
+        
+        # 确保是纯旋转 没有镜像（det(R) = 1）
+        if np.linalg.det(R) < 0:
+            Vt[-1, :] *= -1
+            R = (U @ Vt).T
+        
+        M = scale * R
+        B = c2.reshape(2, 1) - np.dot(M, c1.reshape(2, 1))
+        
+        rotation_rad = np.arctan2(R[1, 0], R[0, 0])
+        rotation_deg = np.degrees(rotation_rad)
+        
+        affine_matrix = np.hstack((M, B))
+        
+        M_inv = np.linalg.inv(M)
+        # B_inv = -np.dot(M_inv, B)
+        B_inv = -B
+        
+        return {
+            'M': M,
+            'B': B,
+            'R': R,
+            'M_inv': M_inv, 
+            'B_inv': B_inv,
+            'affine_matrix': affine_matrix,
+            'scale': scale,                   # 缩放因子
+            'rotation_deg': rotation_deg,     # 旋转角度
+            'c1': c1,
+            'c2': c2
+        }
+    
+    def compose_similarity_transform(self, transform_params, box_center, box_size) -> Dict[str, Any]:
+        scale_box = self.mean_size / box_size
+            
+        M = np.array([[scale_box, 0], [0, scale_box]])
+        B = self.mean_center - scale_box * box_center
+        B = B.reshape(-1, 1)
+                
+        # T_compose(x) = M2 * (M1 * x + B1) + B2 = (M2 * M1) * x + (M2 * B1 + B2)
+        M_compose = M @ transform_params['M']
+        B_compose = M @ transform_params['B'] + B
+        
+        M_inv_compose = np.linalg.inv(M_compose)
+        B_inv_compose = -B_compose
+        
+        affine_matrix_compose = np.hstack((M_compose, B_compose.reshape(-1, 1)))
+        
+        compose_params = transform_params.copy()
+        compose_params.update({
+            'M': M_compose,
+            'B': B_compose,
+            'M_inv': M_inv_compose,
+            'B_inv': B_inv_compose,
+            'affine_matrix': affine_matrix_compose,
+            'scale': scale_box * transform_params['scale'],
+        })
+        
+        return compose_params
+
+    def rotate_transform_params(self, transform_params: Dict[str, Any]) -> Dict[str, Any]:
+        """ 
+        M = [[a, -b], [b, a]]
+        """
+
+        scale_orig = transform_params['scale']
+        rotation_deg_orig = transform_params['rotation_deg']
+        
+        c1 = transform_params['c1']  # 源点集中心
+        c2 = transform_params['c2']  # 目标点集中心
+        
+        # 抖动旋转角度
+        sigma = (self.rotation_range[1] - self.rotation_range[0]) / 6.0  # 99.7%数据在范围内
+        rotation_deg_jittered = rotation_deg_orig + np.random.normal(0, sigma)
+        rotation_rad_jittered = np.radians(rotation_deg_jittered)
+        cos_theta = np.cos(rotation_rad_jittered)
+        sin_theta = np.sin(rotation_rad_jittered)
+        R_jittered = np.array([[cos_theta, -sin_theta],[sin_theta, cos_theta]], dtype=np.float32)
+        
+        M_jittered = scale_orig * R_jittered
+        B_translation = c2.reshape(2, 1) - np.dot(M_jittered, c1.reshape(2, 1))
+            
+        B_jittered = np.array([[B_translation[0, 0]], [B_translation[1, 0]]], dtype=np.float32)
+        
+        affine_matrix_jittered = np.hstack((M_jittered, B_jittered))
+        
+        jittered_params = transform_params.copy()
+        jittered_params.update({
+            'M': M_jittered,
+            'B': B_jittered,
+            'R': R_jittered,
+            'affine_matrix': affine_matrix_jittered,
+            'rotation_deg': rotation_deg_jittered
+        })
+        
+        return jittered_params
+    
+    def scale_shift_transform_params(self, transform_params, box_center, box_size) -> Dict[str, Any]:
+        scale_box = self.mean_size / box_size
+        
+        # 抖动缩放
+        sigma = (self.scale_range[1] - self.scale_range[0]) / 6.0  # 99.7%数据在范围内
+        scale_jittered = scale_box * np.clip(np.random.normal(1.0, sigma), self.scale_range[0], self.scale_range[1])
+             
+        M = np.array([[scale_jittered, 0], [0, scale_jittered]])
+        B = self.mean_center - scale_jittered * box_center
+        B = B.reshape(-1, 1)
+                
+        # T_compose(x) = M2 * (M1 * x + B1) + B2 = (M2 * M1) * x + (M2 * B1 + B2)
+        M_compose = M @ transform_params['M']
+        B_compose = M @ transform_params['B'] + B
+        
+        # 抖动平移   
+        shift = np.random.normal(self.shift_mu, self.shift_sigma, 2)     
+        tx_jittered = B_compose[0, 0] + shift[0]
+        ty_jittered = B_compose[1, 0] + shift[1]
+        
+        M_jittered = M_compose
+        B_jittered = np.array([[tx_jittered], [ty_jittered]], dtype=np.float32)
+        
+        M_jittered_inv = np.linalg.inv(M_jittered)
+        B_jittered_inv = -B_jittered
+            
+        affine_matrix_jittered = np.hstack((M_jittered, B_jittered.reshape(-1, 1)))
+        
+        jittered_params = transform_params.copy()
+        jittered_params.update({
+            'M': M_jittered,
+            'B': B_jittered,
+            'M_inv': M_jittered_inv,
+            'B_inv': B_jittered_inv,
+            'affine_matrix': affine_matrix_jittered,
+            'scale': scale_jittered * transform_params['scale'],
+        })
+        
+        return jittered_params
+    
+    def _count_out_of_bounds_points(self, points: np.ndarray) -> int:
+        w, h = self.input_size        
+        margin_w, margin_h = self.margin_w, self.margin_h
+        
+        x_in_bounds = (points[:, 0] >= margin_w) & (points[:, 0] <= w - margin_w)
+        y_in_bounds = (points[:, 1] >= margin_h) & (points[:, 1] <= h - margin_h)
+        
+        in_bounds_mask = x_in_bounds & y_in_bounds
+        
+        out_of_bounds_count = len(points) - np.sum(in_bounds_mask)
+        
+        return int(out_of_bounds_count)
+    
+    def apply_affine_transform(self, img: np.ndarray, affine_matrix: np.ndarray) -> np.ndarray:
+        if self.interpolation_method == 'random':
+            interpolation = cv2.INTER_LINEAR if random.random() > 0.5 else cv2.INTER_NEAREST
+        elif self.interpolation_method == 'linear':
+            interpolation = cv2.INTER_LINEAR
+        else:  # 'nearest'
+            interpolation = cv2.INTER_NEAREST
+        
+        transformed_img = cv2.warpAffine(img, affine_matrix, self.input_size, flags=interpolation)
+        
+        return transformed_img
+    
+    def _transform_points(self, points: np.ndarray, affine_matrix: np.ndarray) -> np.ndarray:
+        points_homogeneous = np.hstack([points, np.ones((len(points), 1))])
+        transformed_points = np.dot(points_homogeneous, affine_matrix.T)
+        
+        return transformed_points
+    
+    def _generate_random_nineteen(self) -> List[int]:
+        """动态生成随机19点集：每对相邻点随机选一个，18固定"""
+        choices = np.random.randint(0, 2, size=18)
+
+        first_half = 2 * np.arange(9) + choices[:9]
+        second_half = 20 + 2 * np.arange(9) - choices[9:]
+        
+        indices = np.concatenate([first_half, [18], second_half])
+        
+        return indices.tolist()
+
+    def select_point_set(self) -> Tuple[str, List[int]]:
+        point_set_type = random.choices(
+            self.point_set_types, 
+            weights=self.point_set_weights, 
+            k=1
+        )[0]
+        
+        if point_set_type in ['nineteen', 'twenty_three']:
+            indices = self._generate_random_nineteen()
+            
+            if point_set_type == 'twenty_three':
+                indices = indices + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx]
+        else:
+            indices = self.point_sets[point_set_type].copy()
+        
+        return point_set_type, indices
+    
+    def transform(self, results: Dict) -> Optional[dict]:
+        img = results['img']
+        
+        if results.get('keypoints', None) is not None:
+            keypoints = results['keypoints'][0]
+        
+            src_points_all = np.array(keypoints, dtype=np.float32)
+
+            best_out_of_bounds_count = 235
+            
+            for try_num in range(self.max_tries):
+                point_set_type, point_indices = self.select_point_set()
+                
+                src_selected = src_points_all[point_indices].copy()
+                target_selected = self.target_points[point_indices].copy()
+                
+                try:
+                    transform_params = self.similarity_transform_from_points(src_selected, target_selected)
+                except np.linalg.LinAlgError:
+                    continue  # 矩阵奇异，跳过此次尝试
+                
+                if random.random() < self.jitter_prob:
+                    rotate_transform_params = self.rotate_transform_params(transform_params)
+                    
+                    tmp_transformed_points = self._transform_points(src_points_all[self.index_minmax], rotate_transform_params['affine_matrix']) 
+                    box_center, box_size = self._get_square_box(tmp_transformed_points)
+                    
+                    transform_params = self.scale_shift_transform_params(rotate_transform_params, box_center, box_size)
+                else:
+                    tmp_transformed_points = self._transform_points(src_points_all[self.index_minmax], transform_params['affine_matrix']) 
+                    box_center, box_size = self._get_square_box(tmp_transformed_points)
+                    
+                    transform_params = self.compose_similarity_transform(transform_params, box_center, box_size)
+                
+                transformed_points = self._transform_points(src_points_all, transform_params['affine_matrix'])
+                
+                out_of_bounds_count = self._count_out_of_bounds_points(transformed_points)
+                
+                if out_of_bounds_count == 0 or point_set_type == "val":
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    break
+                
+                if out_of_bounds_count < best_out_of_bounds_count:
+                    best_out_of_bounds_count = out_of_bounds_count
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    
+            results['img'] = self.apply_affine_transform(img, out_transform_params['affine_matrix'])
+            results['transformed_keypoints'] = np.array([out_transformed_points])
+            
+            results['M_inv'] = np.array([out_transform_params['M_inv']])
+            results['B_inv'] = np.array([out_transform_params['B_inv']])
+        
+        results['input_size'] = self.input_size
+        
+        return results
+    
+    def __repr__(self) -> str:
+        repr_str = self.__class__.__name__
+        repr_str += f'(input_size={self.input_size}, '
+        repr_str += f'point_set_types={self.point_set_types}, '
+        repr_str += f'max_tries={self.max_tries}, '
+        repr_str += f'jitter_prob={self.jitter_prob})'
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class TopdownAlignV4(BaseTransform):    
+    def __init__(self,
+                 input_size: Tuple[int, int],
+                 mean_face_path: str,
+                 point_set_types: List[str] = ['four', 'nineteen', 'twenty_three', 'base', 'val'],
+                 point_set_weights: Optional[List[float]] = None,
+                 max_tries: int = 20,
+                 margin_ratio: float = 0.0,
+                 scale_range: Tuple[float, float] = (0.9, 1.1),
+                 rotation_range: Tuple[float, float] = (-10, 10),
+                 translation_params: Tuple[float, float] = (0, 3.6), 
+                 jitter_prob: float = 0.8,
+                 interpolation_method: str = 'random',  # 'random', 'linear', 'nearest' 
+        ) -> None:
+        """
+        初始化函数
+        
+        Args:
+            input_size: 输出图像尺寸 (width, height)
+            mean_face_path: 均值人脸npy文件路径
+            point_set_types: 点集类型列表 ['four', 'nineteen', 'twenty_three', 'base', 'val']
+            point_set_weights: 点集选择的权重，None表示均匀分布
+            max_tries: 最大尝试次数
+            margin_ratio: 边界检查的边距比例
+            scale_range: 缩放抖动范围
+            rotation_range: 旋转抖动范围（度数）
+            translation_params: 平移抖动范围（mu sigma）
+            jitter_prob: 抖动概率
+        """
+        super().__init__()
+        
+        self.input_size = input_size
+        self.mean_face_path = mean_face_path
+        self.point_set_types = point_set_types
+        self.max_tries = max_tries
+        self.margin_ratio = margin_ratio
+        self.scale_range = scale_range
+        self.rotation_range = rotation_range
+        self.translation_params = translation_params
+        self.jitter_prob = jitter_prob
+        self.interpolation_method = interpolation_method
+
+        self.mean_face = self._load_mean_face(mean_face_path)
+        
+        if point_set_weights is None:
+            self.point_set_weights = [1.0 / len(point_set_types)] * len(point_set_types)
+        else:
+            self.point_set_weights = point_set_weights
+
+        self._define_point_sets()
+        self.index_minmax = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 
+                               37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 56, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 127, 128, 129, 132, 133, 134, 139]
+        
+        self.margin_w = self.input_size[0] * self.margin_ratio
+        self.margin_h = self.input_size[1] * self.margin_ratio
+        
+        self.shift_mu = self.translation_params[0]
+        self.shift_sigma = self.translation_params[1]
+        
+        self.target_points, self.mean_center, self.mean_size, self.mean_center_4, self.mean_size_4 = self._preprocess_target_points()
+    
+    def _load_mean_face(self, path: str) -> np.ndarray:
+        mean_face = np.load(path)
+        assert mean_face.shape == (235, 2), f"均值人脸应为(235, 2)，实际为{mean_face.shape}"
+        mean_face = mean_face.astype(np.float32)
+
+        return mean_face
+    
+    def _define_point_sets(self):
+        self.eye_left_idx = 201
+        self.eye_right_idx = 202
+        self.nose_tip_idx = 139
+        self.mouth_left_idx = 141
+        self.mouth_right_idx = 159
+        
+        contour_idx = list(range(0, 37, 2))
+        
+        self.point_sets = {
+            'four': [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'five': [self.eye_left_idx, self.eye_right_idx, self.nose_tip_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'nineteen': contour_idx,
+            'twenty_three': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'base': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'val': contour_idx + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx]
+        }
+    
+    def _get_square_box(self, points: np.ndarray) -> Tuple[np.ndarray, float]:
+        x_coords = np.array(points)[:, 0]
+        y_coords = np.array(points)[:, 1]
+        min_x, max_x = np.min(x_coords), np.max(x_coords)
+        min_y, max_y = np.min(y_coords), np.max(y_coords)
+        rect_width = max_x - min_x
+        rect_height = max_y - min_y
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+        
+        square_size = max(rect_width, rect_height)
+        center_point = np.array([center_x, center_y]).astype(np.float32)
+        
+        return center_point, square_size
+    
+    def _preprocess_target_points(self) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray, float]:
+        target_points = self.mean_face.copy()
+        target_points[:, 0] = target_points[:, 0] * self.input_size[0]
+        target_points[:, 1] = target_points[:, 1] * self.input_size[1]
+
+        mean_center, mean_size = self._get_square_box(target_points[self.index_minmax])
+        
+        target_points_4 = self.mean_face[self.point_sets['four']]
+        target_points_4[:, 0] = target_points_4[:, 0] * self.input_size[0]
+        target_points_4[:, 1] = target_points_4[:, 1] * self.input_size[1]
+
+        mean_center_4, mean_size_4 = self._get_square_box(target_points[self.point_sets['four']])
+        
+        return target_points, mean_center, mean_size, mean_center_4, mean_size_4
+    
+    def similarity_transform_from_points(self, points1: np.ndarray, points2: np.ndarray) -> Dict[str, Any]:
+        points1 = points1.astype(np.float32)
+        points2 = points2.astype(np.float32)
+        
+        c1 = np.mean(points1, axis=0)
+        c2 = np.mean(points2, axis=0)
+        
+        points1_centered = points1 - c1
+        points2_centered = points2 - c2
+        
+        s1 = np.std(points1_centered) + 1e-8 
+        s2 = np.std(points2_centered) + 1e-8
+        
+        scale = s2 / s1
+        
+        points1_norm = points1_centered / s1
+        points2_norm = points2_centered / s2
+
+        H = np.dot(points1_norm.T, points2_norm)
+        U, S, Vt = np.linalg.svd(H)
+        
+        R = (U @ Vt).T
+        
+        # 确保是纯旋转 没有镜像（det(R) = 1）
+        if np.linalg.det(R) < 0:
+            Vt[-1, :] *= -1
+            R = (U @ Vt).T
+        
+        M = scale * R
+        B = c2.reshape(2, 1) - np.dot(M, c1.reshape(2, 1))
+        
+        rotation_rad = np.arctan2(R[1, 0], R[0, 0])
+        rotation_deg = np.degrees(rotation_rad)
+        
+        affine_matrix = np.hstack((M, B))
+        
+        M_inv = np.linalg.inv(M)
+        # B_inv = -np.dot(M_inv, B)
+        B_inv = -B
+        
+        return {
+            'M': M,
+            'B': B,
+            'R': R,
+            'M_inv': M_inv, 
+            'B_inv': B_inv,
+            'affine_matrix': affine_matrix,
+            'scale': scale,                   # 缩放因子
+            'rotation_deg': rotation_deg,     # 旋转角度
+            'c1': c1,
+            'c2': c2
+        }
+    
+    def compose_similarity_transform(self, transform_params, box_center, box_size) -> Dict[str, Any]:
+        scale_box = self.mean_size / box_size
+            
+        M = np.array([[scale_box, 0], [0, scale_box]])
+        B = self.mean_center - scale_box * box_center
+        B = B.reshape(-1, 1)
+                
+        # T_compose(x) = M2 * (M1 * x + B1) + B2 = (M2 * M1) * x + (M2 * B1 + B2)
+        M_compose = M @ transform_params['M']
+        B_compose = M @ transform_params['B'] + B
+        
+        M_inv_compose = np.linalg.inv(M_compose)
+        B_inv_compose = -B_compose
+        
+        affine_matrix_compose = np.hstack((M_compose, B_compose.reshape(-1, 1)))
+        
+        compose_params = transform_params.copy()
+        compose_params.update({
+            'M': M_compose,
+            'B': B_compose,
+            'M_inv': M_inv_compose,
+            'B_inv': B_inv_compose,
+            'affine_matrix': affine_matrix_compose,
+            'scale': scale_box * transform_params['scale'],
+        })
+        
+        return compose_params
+
+    def rotate_transform_params(self, transform_params: Dict[str, Any]) -> Dict[str, Any]:
+        """ 
+        M = [[a, -b], [b, a]]
+        """
+
+        scale_orig = transform_params['scale']
+        rotation_deg_orig = transform_params['rotation_deg']
+        
+        c1 = transform_params['c1']  # 源点集中心
+        c2 = transform_params['c2']  # 目标点集中心
+        
+        # 抖动旋转角度
+        sigma = (self.rotation_range[1] - self.rotation_range[0]) / 6.0  # 99.7%数据在范围内
+        rotation_deg_jittered = rotation_deg_orig + np.random.normal(0, sigma)
+        rotation_rad_jittered = np.radians(rotation_deg_jittered)
+        cos_theta = np.cos(rotation_rad_jittered)
+        sin_theta = np.sin(rotation_rad_jittered)
+        R_jittered = np.array([[cos_theta, -sin_theta],[sin_theta, cos_theta]], dtype=np.float32)
+        
+        M_jittered = scale_orig * R_jittered
+        B_translation = c2.reshape(2, 1) - np.dot(M_jittered, c1.reshape(2, 1))
+            
+        B_jittered = np.array([[B_translation[0, 0]], [B_translation[1, 0]]], dtype=np.float32)
+        
+        affine_matrix_jittered = np.hstack((M_jittered, B_jittered))
+        
+        jittered_params = transform_params.copy()
+        jittered_params.update({
+            'M': M_jittered,
+            'B': B_jittered,
+            'R': R_jittered,
+            'affine_matrix': affine_matrix_jittered,
+            'rotation_deg': rotation_deg_jittered
+        })
+        
+        return jittered_params
+    
+    def scale_shift_transform_params(self, transform_params, box_center, mean_center, scale) -> Dict[str, Any]:
+        scale_box = scale
+        
+        # 抖动缩放
+        sigma = (self.scale_range[1] - self.scale_range[0]) / 6.0  # 99.7%数据在范围内
+        scale_jittered = scale_box * np.clip(np.random.normal(1.0, sigma), self.scale_range[0], self.scale_range[1])
+             
+        M = np.array([[scale_jittered, 0], [0, scale_jittered]])
+        B = mean_center - scale_jittered * box_center
+        B = B.reshape(-1, 1)
+                
+        # T_compose(x) = M2 * (M1 * x + B1) + B2 = (M2 * M1) * x + (M2 * B1 + B2)
+        M_compose = M @ transform_params['M']
+        B_compose = M @ transform_params['B'] + B
+        
+        # 抖动平移   
+        shift = np.random.normal(self.shift_mu, self.shift_sigma, 2)     
+        tx_jittered = B_compose[0, 0] + shift[0]
+        ty_jittered = B_compose[1, 0] + shift[1]
+        
+        M_jittered = M_compose
+        B_jittered = np.array([[tx_jittered], [ty_jittered]], dtype=np.float32)
+        
+        M_jittered_inv = np.linalg.inv(M_jittered)
+        B_jittered_inv = -B_jittered
+            
+        affine_matrix_jittered = np.hstack((M_jittered, B_jittered.reshape(-1, 1)))
+        
+        jittered_params = transform_params.copy()
+        jittered_params.update({
+            'M': M_jittered,
+            'B': B_jittered,
+            'M_inv': M_jittered_inv,
+            'B_inv': B_jittered_inv,
+            'affine_matrix': affine_matrix_jittered,
+            'scale': scale_jittered * transform_params['scale'],
+        })
+        
+        return jittered_params
+    
+    def _count_out_of_bounds_points(self, points: np.ndarray) -> int:
+        w, h = self.input_size        
+        margin_w, margin_h = self.margin_w, self.margin_h
+        
+        x_in_bounds = (points[:, 0] >= margin_w) & (points[:, 0] <= w - margin_w)
+        y_in_bounds = (points[:, 1] >= margin_h) & (points[:, 1] <= h - margin_h)
+        
+        in_bounds_mask = x_in_bounds & y_in_bounds
+        
+        out_of_bounds_count = len(points) - np.sum(in_bounds_mask)
+        
+        return int(out_of_bounds_count)
+    
+    def apply_affine_transform(self, img: np.ndarray, affine_matrix: np.ndarray) -> np.ndarray:
+        if self.interpolation_method == 'random':
+            interpolation = cv2.INTER_LINEAR if random.random() > 0.5 else cv2.INTER_NEAREST
+        elif self.interpolation_method == 'linear':
+            interpolation = cv2.INTER_LINEAR
+        else:  # 'nearest'
+            interpolation = cv2.INTER_NEAREST
+        
+        transformed_img = cv2.warpAffine(img, affine_matrix, self.input_size, flags=interpolation)
+        
+        return transformed_img
+    
+    def _transform_points(self, points: np.ndarray, affine_matrix: np.ndarray) -> np.ndarray:
+        points_homogeneous = np.hstack([points, np.ones((len(points), 1))])
+        transformed_points = np.dot(points_homogeneous, affine_matrix.T)
+        
+        return transformed_points
+    
+    def _generate_random_nineteen(self) -> List[int]:
+        """动态生成随机19点集：每对相邻点随机选一个，18固定"""
+        choices = np.random.randint(0, 2, size=18)
+
+        first_half = 2 * np.arange(9) + choices[:9]
+        second_half = 20 + 2 * np.arange(9) - choices[9:]
+        
+        indices = np.concatenate([first_half, [18], second_half])
+        
+        return indices.tolist()
+
+    def select_point_set(self) -> Tuple[str, List[int]]:
+        point_set_type = random.choices(
+            self.point_set_types, 
+            weights=self.point_set_weights, 
+            k=1
+        )[0]
+        
+        if point_set_type in ['nineteen', 'twenty_three']:
+            indices = self._generate_random_nineteen()
+            
+            if point_set_type == 'twenty_three':
+                indices = indices + [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx]
+        else:
+            indices = self.point_sets[point_set_type].copy()
+        
+        return point_set_type, indices
+    
+    def transform(self, results: Dict) -> Optional[dict]:
+        img = results['img']
+        
+        if results.get('keypoints', None) is not None:
+            keypoints = results['keypoints'][0]
+        
+            src_points_all = np.array(keypoints, dtype=np.float32)
+
+            best_out_of_bounds_count = 235
+            
+            for try_num in range(self.max_tries):
+                point_set_type, point_indices = self.select_point_set()
+                
+                src_selected = src_points_all[point_indices].copy()
+                target_selected = self.target_points[point_indices].copy()
+                
+                try:
+                    transform_params = self.similarity_transform_from_points(src_selected, target_selected)
+                except np.linalg.LinAlgError:
+                    continue  # 矩阵奇异，跳过此次尝试
+                
+                if random.random() < self.jitter_prob:
+                    rotate_transform_params = self.rotate_transform_params(transform_params)
+                    
+                    if point_set_type == "four":                        
+                        tmp_transformed_points = self._transform_points(src_points_all[point_indices], rotate_transform_params['affine_matrix'])
+                        box_center, box_size = self._get_square_box(tmp_transformed_points)
+                        
+                        # move center a bit to nose inv direction
+                        tmp_transformed_nose = self._transform_points(src_points_all[[self.nose_tip_idx]], rotate_transform_params['affine_matrix'])
+                        box_center[0] += (box_center[0] - tmp_transformed_nose[:, 0][0])
+                        
+                        scale_box = max(self.mean_size_4 / box_size, 0.9)
+                        
+                        transform_params = self.scale_shift_transform_params(rotate_transform_params, box_center, self.mean_center_4, scale_box)
+                    else:
+                        tmp_transformed_points = self._transform_points(src_points_all[self.index_minmax], rotate_transform_params['affine_matrix']) 
+                        box_center, box_size = self._get_square_box(tmp_transformed_points)
+                        
+                        scale_box = self.mean_size / box_size
+                    
+                        transform_params = self.scale_shift_transform_params(rotate_transform_params, box_center, self.mean_center, scale_box)
+                else:
+                    tmp_transformed_points = self._transform_points(src_points_all[self.index_minmax], transform_params['affine_matrix']) 
+                    box_center, box_size = self._get_square_box(tmp_transformed_points)
+                    
+                    transform_params = self.compose_similarity_transform(transform_params, box_center, box_size)
+                
+                transformed_points = self._transform_points(src_points_all, transform_params['affine_matrix'])
+                
+                out_of_bounds_count = self._count_out_of_bounds_points(transformed_points)
+                
+                if out_of_bounds_count == 0 or point_set_type == "val":
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    break
+                
+                if out_of_bounds_count < best_out_of_bounds_count:
+                    best_out_of_bounds_count = out_of_bounds_count
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    
+            results['img'] = self.apply_affine_transform(img, out_transform_params['affine_matrix'])
+            results['transformed_keypoints'] = np.array([out_transformed_points])
+            
+            results['M_inv'] = np.array([out_transform_params['M_inv']])
+            results['B_inv'] = np.array([out_transform_params['B_inv']])
+        
+        results['input_size'] = self.input_size
+        
+        return results
+    
+    def __repr__(self) -> str:
+        repr_str = self.__class__.__name__
+        repr_str += f'(input_size={self.input_size}, '
+        repr_str += f'point_set_types={self.point_set_types}, '
+        repr_str += f'max_tries={self.max_tries}, '
+        repr_str += f'jitter_prob={self.jitter_prob})'
         return repr_str

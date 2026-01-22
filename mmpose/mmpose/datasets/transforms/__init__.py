@@ -9,12 +9,12 @@ from .converting import KeypointConverter
 from .formatting import PackPoseInputs
 from .loading import LoadImage
 from .pose3d_transforms import RandomFlipAroundRoot
-from .topdown_transforms import TopdownAffine, TopdownAlign, HideAndSeek, RandomDirectionalMasking
+from .topdown_transforms import TopdownAffine, TopdownAlign, HideAndSeek, RandomDirectionalMasking, TopdownAlignV2, TopdownAlignV3, TopdownAlignV4, EyeConstrainedCoarseDropout
 
 __all__ = [
     'GetBBoxCenterScale', 'RandomBBoxTransform', 'RandomFlip',
     'RandomHalfBody', 'TopdownAffine', 'Albumentation',
     'PhotometricDistortion', 'PackPoseInputs', 'LoadImage',
-    'BottomupGetHeatmapMask', 'BottomupRandomAffine', 'BottomupResize',
-    'GenerateTarget', 'KeypointConverter', 'RandomFlipAroundRoot', 'TopdownAlign', 'HideAndSeek', 'RandomDirectionalMasking'
+    'BottomupGetHeatmapMask', 'BottomupRandomAffine', 'BottomupResize', 'GenerateTarget', 'KeypointConverter', 'RandomFlipAroundRoot', 
+    'TopdownAlign', 'HideAndSeek', 'RandomDirectionalMasking', 'TopdownAlignV2', 'TopdownAlignV3', 'TopdownAlignV4', 'EyeConstrainedCoarseDropout'
 ]
