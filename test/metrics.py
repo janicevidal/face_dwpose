@@ -27,7 +27,7 @@ def compute_nme(preds, target):
             interocular = np.linalg.norm(pts_gt[36, ] - pts_gt[45, ])
         elif L == 98:
             interocular = np.linalg.norm(pts_gt[60, ] - pts_gt[72, ])
-        elif L == 235:
+        elif L == 235 or L == 207:
             interocular = np.linalg.norm(pts_gt[201, ] - pts_gt[202, ])
             # interocular = np.linalg.norm(pts_gt[77, ] - pts_gt[113, ])
         else:

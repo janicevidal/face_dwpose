@@ -10,8 +10,12 @@ from math import cos, sin
 # with open('/data/xiaoshuai/facial_lanmark/val_1118/annotations/val_angles_annotations.json', 'r') as f:
 #     coco_data = json.load(f)
 
-image_dir = "/data/xiaoshuai/facial_lanmark/train_1226/images/" 
-with open('/data/xiaoshuai/facial_lanmark/train_1226/annotations/train_angles_annotations.json', 'r') as f:
+# image_dir = "/data/xiaoshuai/facial_lanmark/train_1226/images/" 
+# with open('/data/xiaoshuai/facial_lanmark/train_1226/annotations/train_angles_annotations.json', 'r') as f:
+#     coco_data = json.load(f)
+
+image_dir = "/data/xiaoshuai/facial_lanmark/train_0126/val_1229/" 
+with open('/data/xiaoshuai/facial_lanmark/train_0126/annotations/val_angles_annotations_mod.json', 'r') as f:
     coco_data = json.load(f)
 
 def draw_axis(img, yaw_, pitch_, roll_, tdx=None, tdy=None, size = 100):
@@ -80,7 +84,7 @@ else:
     print("All images have exactly one annotation")
 
 # 选择一个样本进行可视化
-img_info = coco_data['images'][8]  # 选择第10张图像
+img_info = coco_data['images'][5]  # 选择第10张图像
 annotation = [ann for ann in coco_data['annotations'] if ann['image_id'] == img_info['id']][0]
 
 print(img_info['file_name'])
@@ -108,5 +112,5 @@ roll = annotation['euler_angles']['roll']
 image = draw_axis(image, yaw, pitch, roll, tdx=int(x + w/2), tdy=int(y + h/2), size=w//2)
 
 # 保存或显示结果
-cv2.imwrite('validation_result.jpg', image)
+cv2.imwrite('validation_result_207.jpg', image)
 print("Validation image saved as validation_result.jpg")

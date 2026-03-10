@@ -5,9 +5,9 @@ from .cofw_dataset import COFWDataset
 from .face_300w_dataset import Face300WDataset
 from .lapa_dataset import LapaDataset
 from .wflw_dataset import WFLWDataset
-from .inshot_dataset import InshotDataset
+from .inshot_dataset import InshotDataset, InshotDataset207
 
 __all__ = [
     'Face300WDataset', 'WFLWDataset', 'AFLWDataset', 'COFWDataset',
-    'CocoWholeBodyFaceDataset', 'LapaDataset', 'InshotDataset'
+    'CocoWholeBodyFaceDataset', 'LapaDataset', 'InshotDataset', 'InshotDataset207'
 ]
