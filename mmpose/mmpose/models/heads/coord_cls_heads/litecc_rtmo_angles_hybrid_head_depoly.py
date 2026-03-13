@@ -10,7 +10,6 @@ from mmcv.cnn import Scale
 from mmengine.structures import InstanceData
 from mmpose.models.backbones.blocks import OREPA_1x1
 from mmpose.evaluation.functional import simcc_pck_accuracy, keypoint_pck_accuracy
-from mmpose.models.utils.rtmcc_block import ScaleNorm
 from mmpose.models.utils.tta import flip_coordinates
 from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
@@ -21,6 +20,47 @@ from ..base_head import BaseHead
 OptIntSeq = Optional[Sequence[int]]
 
 
+class ScaleNorm(nn.Module):
+    """Scale Norm.
+
+    Args:
+        dim (int): The dimension of the scale vector.
+        eps (float, optional): The minimum value in clamp. Defaults to 1e-5.
+
+    Reference:
+        `Transformers without Tears: Improving the Normalization
+        of Self-Attention <https://arxiv.org/abs/1910.05895>`_
+    """
+
+    def __init__(self, dim, eps=1e-5):
+        super().__init__()
+        self.scale = dim**-0.5
+        self.eps = eps
+        # self.g = nn.Parameter(torch.ones(1))
+        self.g = nn.Parameter(torch.ones(1), requires_grad=False)
+
+    def forward(self, x):
+        """Forward function.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: The tensor after applying scale norm.
+        """
+
+        if torch.onnx.is_in_onnx_export() and \
+                digit_version(TORCH_VERSION) >= digit_version('1.12'):
+
+            norm = torch.linalg.norm(x, dim=-1, keepdim=True)
+
+        else:
+            norm = torch.norm(x, dim=-1, keepdim=True)
+        norm = norm * self.scale
+        # return x / norm.clamp(min=self.eps) * self.g
+        return x / norm.clamp(min=self.eps)
+    
+    
 @MODELS.register_module()
 class MultiTaskHybridLiteMLEHead(BaseHead):
     """

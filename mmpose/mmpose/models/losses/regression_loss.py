@@ -88,7 +88,7 @@ class RLELoss(nn.Module):
 
         if self.use_target_weight:
             assert target_weight is not None
-            loss *= target_weight
+            loss *= target_weight.unsqueeze(-1)
 
         if self.size_average:
             loss /= len(loss)
@@ -719,14 +719,15 @@ class SimCC_DSNTRLE_Loss(nn.Module):
 
 @MODELS.register_module()
 class AnisotropicDirectionLoss(nn.Module):
-    def __init__(self, scale=0.01, loss_lambda=2.0, lambda_mode=1, loss_weight=1, num_kpts=235):
+    def __init__(self, scale=0.01, loss_lambda=2.0, lambda_mode=1, loss_weight=1, num_kpts=235, use_target_weight=False):
         super(AnisotropicDirectionLoss, self).__init__()
         self.max_node_number = 1000
         self.scale = scale
         self.loss_lambda = loss_lambda
         self.lambda_mode = lambda_mode
+        self.use_target_weight = use_target_weight
         
-        assert num_kpts in [235, 207], 'Only support 235 and 207 keypoints now.'
+        assert num_kpts in [235, 207, 181], 'Only support 235 & 207 & 181 keypoints now.'
         
         if num_kpts == 235:
             self.edge_info = (
@@ -757,6 +758,20 @@ class AnisotropicDirectionLoss(nn.Module):
                     (True, (177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200)), # InnerLip
                     (False, (203, 201, 204)), # LeftEye
                     (False, (205, 202, 206)), # RightEye
+                )
+        elif num_kpts == 181:
+            self.edge_info = (
+                    (True, (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)), # FaceContour
+                    (True, (28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47)), # 左眼眉毛
+                    (True, (48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67,)), # 右眼眉毛
+                    (True, (68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91)), # LeftEyebrow
+                    (True, (92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115)), # RightEyebrow
+                    (True, (126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137)), # Nose
+                    (False, (138, 139, 140, 141, 142)), # NoseLine
+                    (True, (143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164)), # OuterLip
+                    (True, (165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180)), # InnerLip
+                    (True, (116, 117, 118, 119)), # LeftEye
+                    (True, (121, 122, 123, 124)), # RightEye
                 )
             
         self.neighbors = self._get_neighbors(self.edge_info)
@@ -861,10 +876,16 @@ class AnisotropicDirectionLoss(nn.Module):
         return loss_lambda
 
 
-    def forward(self, coord, gt):
+    def forward(self, coord, gt, target_weight=None):
         # [0, 1] to [-1, 1]
         groundtruth = gt * 2 - 1
         output = coord * 2 - 1
+        
+        # if self.use_target_weight:
+        #     assert target_weight is not None
+            
+        #     output = output * target_weight,
+        #     groundtruth = groundtruth * target_weight
 
         normal_vector = self._get_normals_from_neighbors(groundtruth) # b x n x 2, [-1, 1]
         tangent_vector = self._inverse_vector(normal_vector) # b x n x 2, [-1, 1]
@@ -886,6 +907,9 @@ class AnisotropicDirectionLoss(nn.Module):
 
         delta = delta_2.clamp(min=1e-128).sqrt() # delta_2.sqrt()
         loss = torch.where(delta < self.scale, 0.5 / self.scale * delta_2, delta - 0.5 * self.scale)
+        
+        if self.use_target_weight:
+            loss *= target_weight
 
         return self.loss_weight * loss.mean()
     

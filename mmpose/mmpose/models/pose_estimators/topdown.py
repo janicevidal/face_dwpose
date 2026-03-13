@@ -3,7 +3,6 @@ from itertools import zip_longest
 from typing import Optional
 
 from torch import Tensor
-import numpy as np
 
 from mmpose.registry import MODELS
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
@@ -148,17 +147,12 @@ class TopdownPoseEstimator(BasePoseEstimator):
             gt_instances = data_sample.gt_instances
 
             # convert keypoint coordinates from input space to image space
-            # bbox_centers = gt_instances.bbox_centers
-            # bbox_scales = gt_instances.bbox_scales
-            # input_size = data_sample.metainfo['input_size']
+            bbox_centers = gt_instances.bbox_centers
+            bbox_scales = gt_instances.bbox_scales
+            input_size = data_sample.metainfo['input_size']
 
-            # pred_instances.keypoints = pred_instances.keypoints / input_size \
-                # # * bbox_scales + bbox_centers - 0.5 * bbox_scales
-            
-            M_inv = gt_instances.M_inv
-            B_inv = gt_instances.B_inv
-            
-            pred_instances.keypoints = np.expand_dims((np.matmul(M_inv[0], (pred_instances.keypoints[0]).T + B_inv[0])).T, axis=0)
+            pred_instances.keypoints = pred_instances.keypoints / input_size \
+                * bbox_scales + bbox_centers - 0.5 * bbox_scales
 
             if output_keypoint_indices is not None:
                 # select output keypoints with given indices

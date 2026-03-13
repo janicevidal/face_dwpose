@@ -113,7 +113,7 @@ class PoseLocalVisualizer(OpencvBackendVisualizer):
                                             Tuple[int]]] = (255, 255, 255),
                  skeleton: Optional[Union[List, Tuple]] = None,
                  line_width: Union[int, float] = 1,
-                 radius: Union[int, float] = 3,
+                 radius: Union[int, float] = 2,
                  show_keypoint_weight: bool = False,
                  backend: str = 'opencv',
                  alpha: float = 1.0):

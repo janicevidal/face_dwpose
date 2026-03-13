@@ -7,5 +7,7 @@ from .litecc_ihl_head import LiteImplicitHead
 from .litecc_rtmo_head import LiteMLEHead
 from .litecc_rtmo_angles_head import MultiTaskLiteMLEHead
 from .litecc_rtmo_angles_hybrid_head import MultiTaskHybridLiteMLEHead
+from .rtmw_head import RTMWHead
+from .rtmw_integral_head import RTMWIntegralHead
 
-__all__ = ['SimCCHead', 'RTMCCHead', 'LiteCCHead', 'LiteCCIntegralHead', 'LiteImplicitHead', 'LiteMLEHead', 'MultiTaskLiteMLEHead', 'MultiTaskHybridLiteMLEHead']
+__all__ = ['SimCCHead', 'RTMCCHead', 'LiteCCHead', 'LiteCCIntegralHead', 'LiteImplicitHead', 'LiteMLEHead', 'MultiTaskLiteMLEHead', 'MultiTaskHybridLiteMLEHead', 'RTMWHead', 'RTMWIntegralHead']
