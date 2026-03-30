@@ -160,13 +160,6 @@ val_pipeline = [
     dict(type='PackPoseInputs')
 ]
 
-test_pipeline = [
-    dict(type='LoadImage', backend_args=backend_args),
-    dict(type='GetBBoxCenterScale'),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
-    dict(type='PackPoseInputs')
-]
-
 train_pipeline_stage2 = [
     dict(type='LoadImage', backend_args=backend_args),
     dict(type='GetBBoxCenterScale', padding=1.2),
@@ -247,30 +240,6 @@ dataset_kpts235 = dict(
     ],
 )
 
-# dataset_kpts235_0325 = dict(
-#     type='InshotDataset',
-#     data_root='/data/xiaoshuai/facial_lanmark/train_0325/',
-#     data_mode=data_mode,
-#     ann_file='annotations/train_angles_annotations_181_filter_0325.json',
-#     data_prefix=dict(img='images_all_181_filter/'),
-#     pipeline=[
-#         dict(
-#             type='KeypointConverter', num_keypoints=181, mapping=kpt235_to_181)
-#     ],
-# )
-
-dataset_kpts235_0325 = dict(
-    type='InshotDataset181',
-    data_root='/data/xiaoshuai/facial_lanmark/train_0325/demo/',
-    data_mode=data_mode,
-    ann_file='anno/train_angles_annotations_181_filter_0325_nosquare.json',
-    data_prefix=dict(img='img/'),
-    # pipeline=[
-    #     dict(
-    #         type='KeypointConverter', num_keypoints=181, mapping=kpt235_to_181)
-    # ],
-)
-
 # data loaders
 train_dataloader = dict(
     batch_size=train_batch_size,
@@ -307,22 +276,20 @@ val_kpts235 = dict(
     ],
 )
 
-# test_dataloader = dict(
-#     batch_size=1,
-#     num_workers=1,
-#     persistent_workers=True,
-#     drop_last=False,
-#     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
-#     dataset=dict(
-#         type='CombinedDataset',
-#         metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
-#         # datasets=[val_kpts235],
-#         # datasets=[dataset_kpts235],
-#         datasets=[dataset_kpts235_0325],
-#         pipeline=val_pipeline,
-#         test_mode=True,
-#     )
-# )
+test_dataloader = dict(
+    batch_size=32,
+    num_workers=10,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+    dataset=dict(
+        type='CombinedDataset',
+        metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
+        datasets=[val_kpts181, val_kpts235],
+        pipeline=val_pipeline,
+        test_mode=True,
+    )
+)
 
 val_dataloader = dict(
     batch_size=val_batch_size,
@@ -339,13 +306,21 @@ val_dataloader = dict(
     )
 )
 
-test_dataloader = dict(
-    batch_size=1,
-    num_workers=10,
-    persistent_workers=True,
-    drop_last=False,
-    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
-    dataset=dataset_kpts235_0325)
+# test_dataloader = dict(
+#     batch_size=val_batch_size,
+#     num_workers=10,
+#     persistent_workers=True,
+#     drop_last=False,
+#     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+#     dataset=dict(
+#         type=dataset_type,
+#         data_root=data_root,
+#         data_mode=data_mode,
+#         ann_file='annotations/val_181_annotations.json',
+#         data_prefix=dict(img='val/'),
+#         test_mode=True,
+#         pipeline=val_pipeline,
+#     ))
 
 # hooks
 default_hooks = dict(

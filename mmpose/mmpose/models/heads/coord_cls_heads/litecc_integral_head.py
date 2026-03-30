@@ -304,7 +304,7 @@ class LiteCCIntegralHead(BaseHead):
             
             if 'loss_adl' in all_keys:
                 loss_name = 'loss_adl'
-                losses[loss_name] = self.multi_losses[loss_name](coords, gt)
+                losses[loss_name] = self.multi_losses[loss_name](coords, gt, keypoint_weights)
             
             if 'loss_rle' in all_keys:
                 loss_name = 'loss_rle'

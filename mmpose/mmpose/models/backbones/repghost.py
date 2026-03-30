@@ -459,6 +459,7 @@ class RepGhostNet(BaseBackbone):
         reparam_bn=True,
         reparam_identity=False,
         deploy=False,
+        deploy_mtcnn_mean_std=False,
         init_cfg=[
             dict(type='Kaiming', layer=['Conv2d']),
             dict(
@@ -473,6 +474,7 @@ class RepGhostNet(BaseBackbone):
         self.dropout = dropout
         self.out_indices = out_indices
         self.block_shift = block_shift
+        self.deploy_mtcnn_mean_std = deploy_mtcnn_mean_std
 
         # building first layer
         output_channel = _make_divisible(16 * width, 4)
@@ -513,8 +515,24 @@ class RepGhostNet(BaseBackbone):
             self.layers.append(layer_name)
             
         self.inj_module = Injection(in_channels=out_feat_chs, out_channels=out_channels)
+        
+    # (非必选) 181 点部署阶段，将检测模型的输入归一化方式 x = (x -127.5) / 128.0 BGR，适应到训练归一化（imagenet 形式）RGB 中
+    def adapt_input(self, x):
+        # x: (C, H, W) 或 (B, C, H, W)，通道顺序 BGR
+        # 反归一化到 [0,255]
+        x = x * 128.0 + 127.5
+        # BGR -> RGB
+        x = x[[2,1,0], ...] if x.dim() == 3 else x[:, [2,1,0], ...]
+        # ImageNet 归一化
+        mean = torch.tensor([123.675, 116.28, 103.53]).view(-1, 1, 1).to(x.device)
+        std = torch.tensor([58.395, 57.12, 57.375]).view(-1, 1, 1).to(x.device)
+        x = (x - mean) / std
+        return x
 
     def forward(self, x):
+        if self.deploy_mtcnn_mean_std:
+            x = self.adapt_input(x)
+             
         x = self.conv_stem(x)
         x = self.bn1(x)
         x = self.act1(x)

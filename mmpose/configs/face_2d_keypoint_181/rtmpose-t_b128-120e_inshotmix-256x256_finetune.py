@@ -9,13 +9,13 @@ train_cfg = dict(max_epochs=max_epochs, val_interval=1)
 randomness = dict(seed=21)
 
 num_keypoints = 181
-train_batch_size = 64
+train_batch_size = 128
 val_batch_size = 32
 
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.1),
+    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
     clip_grad=dict(max_norm=35, norm_type=2),
     paramwise_cfg=dict(
         norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
@@ -44,8 +44,8 @@ auto_scale_lr = dict(base_batch_size=512)
 # codec settings
 codec = dict(
     type='SimCCLabel',
-    input_size=(384, 384),
-    sigma=(6.93, 6.93),
+    input_size=(256, 256),
+    sigma=(5.66, 5.66),
     simcc_split_ratio=2.0,
     normalize=False,
     use_dark=False)
@@ -63,36 +63,20 @@ model = dict(
         type='CSPNeXt',
         arch='P5',
         expand_ratio=0.5,
-        deepen_factor=1.,
-        widen_factor=1.,
+        deepen_factor=0.167,
+        widen_factor=0.375,
+        out_indices=(4, ),
         channel_attention=True,
         norm_cfg=dict(type='SyncBN'),
         act_cfg=dict(type='SiLU'),
         init_cfg=dict(
             type='Pretrained',
             prefix='backbone.',
-            checkpoint='/home/zhangxiaoshuai/Pretrained/rtmw-dw-x-l_simcc-cocktail14_270e-384x288-20231122.pth'  # noqa
-        )),
-    neck=dict(
-        type='CSPNeXtPAFPN',
-        in_channels=[256, 512, 1024],
-        out_channels=None,
-        out_indices=(
-            1,
-            2,
-        ),
-        num_csp_blocks=2,
-        expand_ratio=0.5,
-        norm_cfg=dict(type='SyncBN'),
-        act_cfg=dict(type='SiLU', inplace=True),
-        init_cfg=dict(
-            type='Pretrained',
-            prefix='neck.',
-            checkpoint='/home/zhangxiaoshuai/Pretrained/rtmw-dw-x-l_simcc-cocktail14_270e-384x288-20231122.pth'  # noqa
+            checkpoint='/home/zhangxiaoshuai/Pretrained/rtmpose-t_simcc-face6_pt-in1k_120e-256x256-df79d9a5_20230529.pth'  # noqa
         )),
     head=dict(
-        type='RTMWHead',
-        in_channels=1024,
+        type='RTMCCHead',
+        in_channels=384,
         out_channels=num_keypoints,
         input_size=codec['input_size'],
         in_featuremap_size=tuple([s // 32 for s in codec['input_size']]),
@@ -108,12 +92,10 @@ model = dict(
             use_rel_bias=False,
             pos_enc=False),
         loss=dict(
-            type='MaskKLDiscretLoss',
+            type='KLDiscretLoss',
             use_target_weight=True,
-            beta=1.,
-            label_softmax=True,
-            label_beta=10.
-        ),
+            beta=10.,
+            label_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
@@ -156,13 +138,6 @@ train_pipeline = [
 val_pipeline = [
     dict(type='LoadImage', backend_args=backend_args),
     dict(type='GetBBoxCenterScale', padding=1.2),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
-    dict(type='PackPoseInputs')
-]
-
-test_pipeline = [
-    dict(type='LoadImage', backend_args=backend_args),
-    dict(type='GetBBoxCenterScale'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(type='PackPoseInputs')
 ]
@@ -247,30 +222,6 @@ dataset_kpts235 = dict(
     ],
 )
 
-# dataset_kpts235_0325 = dict(
-#     type='InshotDataset',
-#     data_root='/data/xiaoshuai/facial_lanmark/train_0325/',
-#     data_mode=data_mode,
-#     ann_file='annotations/train_angles_annotations_181_filter_0325.json',
-#     data_prefix=dict(img='images_all_181_filter/'),
-#     pipeline=[
-#         dict(
-#             type='KeypointConverter', num_keypoints=181, mapping=kpt235_to_181)
-#     ],
-# )
-
-dataset_kpts235_0325 = dict(
-    type='InshotDataset181',
-    data_root='/data/xiaoshuai/facial_lanmark/train_0325/demo/',
-    data_mode=data_mode,
-    ann_file='anno/train_angles_annotations_181_filter_0325_nosquare.json',
-    data_prefix=dict(img='img/'),
-    # pipeline=[
-    #     dict(
-    #         type='KeypointConverter', num_keypoints=181, mapping=kpt235_to_181)
-    # ],
-)
-
 # data loaders
 train_dataloader = dict(
     batch_size=train_batch_size,
@@ -307,22 +258,20 @@ val_kpts235 = dict(
     ],
 )
 
-# test_dataloader = dict(
-#     batch_size=1,
-#     num_workers=1,
-#     persistent_workers=True,
-#     drop_last=False,
-#     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
-#     dataset=dict(
-#         type='CombinedDataset',
-#         metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
-#         # datasets=[val_kpts235],
-#         # datasets=[dataset_kpts235],
-#         datasets=[dataset_kpts235_0325],
-#         pipeline=val_pipeline,
-#         test_mode=True,
-#     )
-# )
+test_dataloader = dict(
+    batch_size=32,
+    num_workers=10,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+    dataset=dict(
+        type='CombinedDataset',
+        metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
+        datasets=[val_kpts181, val_kpts235],
+        pipeline=val_pipeline,
+        test_mode=True,
+    )
+)
 
 val_dataloader = dict(
     batch_size=val_batch_size,
@@ -339,13 +288,21 @@ val_dataloader = dict(
     )
 )
 
-test_dataloader = dict(
-    batch_size=1,
-    num_workers=10,
-    persistent_workers=True,
-    drop_last=False,
-    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
-    dataset=dataset_kpts235_0325)
+# val_dataloader = dict(
+#     batch_size=val_batch_size,
+#     num_workers=10,
+#     persistent_workers=True,
+#     drop_last=False,
+#     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+#     dataset=dict(
+#         type=dataset_type,
+#         data_root=data_root,
+#         data_mode=data_mode,
+#         ann_file='annotations/val_181_annotations.json',
+#         data_prefix=dict(img='val/'),
+#         test_mode=True,
+#         pipeline=val_pipeline,
+#     ))
 
 # hooks
 default_hooks = dict(
@@ -376,5 +333,3 @@ visualizer = dict(vis_backends=[
     dict(type='LocalVisBackend'),
     dict(type='TensorboardVisBackend'),
 ])
-
-work_dir='/home/zhangxiaoshuai/Checkpoint/FacialLandmark181/rtmw-l_b128-120e_inshotmix-384x384_finetune_body_pretrain_neck_refine_box1_2'

@@ -10,6 +10,7 @@
 *.pth
 *.csv
 *.txt
+*.pkl
 *.egg-info
 app_web.log
 /.git/

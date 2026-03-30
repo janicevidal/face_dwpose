@@ -9,9 +9,17 @@ from math import cos, sin
 # json_path = '/data/xiaoshuai/facial_lanmark/train_0126/annotations/train_filtered_annotations.json'
 # output_dir = "/data/xiaoshuai/facial_lanmark/train_0126/visualize/filtered_train_0126"
 
-image_dir = "/data/xiaoshuai/facial_lanmark/train_0126/val_1229/"
-json_path = '/data/xiaoshuai/facial_lanmark/train_0126/annotations/val_filtered_annotations.json'
-output_dir = "/data/xiaoshuai/facial_lanmark/train_0126/visualize/filtered_val_0126"    
+# image_dir = "/data/xiaoshuai/facial_lanmark/train_0126/val_1229/"
+# json_path = '/data/xiaoshuai/facial_lanmark/train_0126/annotations/val_filtered_annotations.json'
+# output_dir = "/data/xiaoshuai/facial_lanmark/train_0126/visualize/filtered_val_0126"  
+
+# image_dir = "/data/xiaoshuai/facial_landmark_181/train_0326/val_images/"
+# json_path = '/data/xiaoshuai/facial_landmark_181/train_0326/annotations/val_angles_annotations_181.json'
+# output_dir = "/data/xiaoshuai/facial_landmark_181/train_0326/val_visualize"   
+
+image_dir = "/data/xiaoshuai/facial_landmark_181/train_0310/val/"
+json_path = '/data/xiaoshuai/facial_landmark_181/train_0310/annotations/val_181_annotations.json'
+output_dir = "/data/xiaoshuai/facial_landmark_181/train_0310/val_visualize"   
 
 # =================================================
 

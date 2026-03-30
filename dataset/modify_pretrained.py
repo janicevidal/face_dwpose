@@ -38,8 +38,11 @@ if __name__ == "__main__":
     # input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_1_0x_142M_74.22.pth.tar"
     # output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_1_0x_142M_74.22_modify.pth.tar"
     
-    input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_2_0x_516M_78.81.pth.tar"
-    output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_2_0x_516M_78.81_modify.pth.tar"
+    # input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_2_0x_516M_78.81.pth.tar"
+    # output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_2_0x_516M_78.81_modify.pth.tar"
+    
+    input_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_0_8x_96M_72.24.pth.tar"
+    output_path = "/home/zhangxiaoshuai/Pretrained/repghostnet_0_8x_96M_72.24_modify.pth.tar"
     
     # 执行修改
     modify_weight_keys(input_path, output_path)

@@ -276,20 +276,36 @@ val_kpts235 = dict(
     ],
 )
 
+# test_dataloader = dict(
+#     batch_size=32,
+#     num_workers=10,
+#     persistent_workers=True,
+#     drop_last=False,
+#     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+#     dataset=dict(
+#         type='CombinedDataset',
+#         metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
+#         datasets=[val_kpts181, val_kpts235],
+#         pipeline=val_pipeline,
+#         test_mode=True,
+#     )
+# )
+
 test_dataloader = dict(
-    batch_size=32,
+    batch_size=val_batch_size,
     num_workers=10,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
     dataset=dict(
-        type='CombinedDataset',
-        metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
-        datasets=[val_kpts181, val_kpts235],
-        pipeline=val_pipeline,
+        type=dataset_type,
+        data_root=data_root,
+        data_mode=data_mode,
+        ann_file='annotations/val_181_annotations.json',
+        data_prefix=dict(img='val/'),
         test_mode=True,
-    )
-)
+        pipeline=val_pipeline,
+    ))
 
 val_dataloader = dict(
     batch_size=val_batch_size,

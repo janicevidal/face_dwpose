@@ -2232,3 +2232,132 @@ class TopdownAlignV4(BaseTransform):
         repr_str += f'max_tries={self.max_tries}, '
         repr_str += f'jitter_prob={self.jitter_prob})'
         return repr_str
+
+
+@TRANSFORMS.register_module()
+class TopdownAlignV4_KPTS181(TopdownAlignV4):
+    def __init__(self,
+                 input_size: Tuple[int, int],
+                 mean_face_path: str,
+                 point_set_types: List[str] = ['four', 'val'],
+                 point_set_weights: Optional[List[float]] = None,
+                 max_tries: int = 10,
+                 margin_ratio: float = 0.0,
+                 scale_range: Tuple[float, float] = (0.9, 1.1),
+                 rotation_range: Tuple[float, float] = (-10, 10),
+                 translation_params: Tuple[float, float] = (0, 4.5), 
+                 jitter_prob: float = 0.8,
+                 interpolation_method: str = 'linear',  # 'random', 'linear', 'nearest' 
+        ) -> None:
+
+        super().__init__(input_size, mean_face_path, point_set_types, point_set_weights, max_tries, 
+                         margin_ratio, scale_range, rotation_range, translation_params, jitter_prob, interpolation_method)
+        
+    def _load_mean_face(self, path: str) -> np.ndarray:
+        mean_face = np.load(path)
+        assert mean_face.shape == (181, 2), f"均值人脸应为(181, 2)，实际为{mean_face.shape}"
+        mean_face = mean_face.astype(np.float32)
+
+        return mean_face
+    
+    def _define_point_sets(self):
+        self.eye_left_idx = 120
+        self.eye_right_idx = 125
+        self.nose_tip_idx = 141
+        self.mouth_left_idx = 143
+        self.mouth_right_idx = 153
+        
+        self.point_sets = {
+            'four': [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx],
+            'val': [self.eye_left_idx, self.eye_right_idx, self.mouth_left_idx, self.mouth_right_idx]
+        }
+    
+    def _preprocess_target_points(self) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray, float]:
+        
+        target_points = self.mean_face.copy()
+        target_points[:, 0] = target_points[:, 0] * self.input_size[0]
+        target_points[:, 1] = target_points[:, 1] * self.input_size[1]
+        
+        target_points_4 = self.mean_face[self.point_sets['four']]
+        target_points_4[:, 0] = target_points_4[:, 0] * self.input_size[0]
+        target_points_4[:, 1] = target_points_4[:, 1] * self.input_size[1]
+
+        mean_center_4, mean_size_4 = self._get_square_box(target_points[self.point_sets['four']])
+        
+        mean_center, mean_size = mean_center_4, mean_size_4
+        
+        return target_points, mean_center, mean_size, mean_center_4, mean_size_4
+    
+    def transform(self, results: Dict) -> Optional[dict]:
+        img = results['img']
+        
+        if results.get('keypoints', None) is not None:
+            keypoints = results['keypoints'][0]
+        
+            src_points_all = np.array(keypoints, dtype=np.float32)
+
+            best_out_of_bounds_count = 181
+            
+            for try_num in range(self.max_tries):
+                point_set_type, point_indices = self.select_point_set()
+                
+                src_selected = src_points_all[point_indices].copy()
+                target_selected = self.target_points[point_indices].copy()
+                
+                try:
+                    transform_params = self.similarity_transform_from_points(src_selected, target_selected)
+                except np.linalg.LinAlgError:
+                    continue  # 矩阵奇异，跳过此次尝试
+                
+                if random.random() < self.jitter_prob:
+                    rotate_transform_params = self.rotate_transform_params(transform_params)
+                    
+                    if point_set_type == "four":                        
+                        tmp_transformed_points = self._transform_points(src_points_all[point_indices], rotate_transform_params['affine_matrix'])
+                        box_center, box_size = self._get_square_box(tmp_transformed_points)
+                        
+                        # move center a bit to nose inv direction
+                        tmp_transformed_nose = self._transform_points(src_points_all[[self.nose_tip_idx]], rotate_transform_params['affine_matrix'])
+                        box_center[0] += (box_center[0] - tmp_transformed_nose[:, 0][0])
+                        
+                        scale_box = self.mean_size_4 / box_size
+                        scale_box = max(self.mean_size_4 / box_size, 0.82)
+                        
+                        transform_params = self.scale_shift_transform_params(rotate_transform_params, box_center, self.mean_center_4, scale_box)
+                    else:
+                        raise ValueError('Unsupport transform type, 181点图像检测模式下检测器只提供了人脸的五点，只能依据四点进行抖动')
+                else:
+                    tmp_transformed_points = self._transform_points(src_points_all[point_indices], transform_params['affine_matrix']) 
+                    box_center, box_size = self._get_square_box(tmp_transformed_points)
+                    
+                    box_size = min(box_size, self.mean_size_4 / 0.82)  # 限制最大box_size，避免过度缩小
+                    
+                    # move center a bit to nose inv direction
+                    tmp_transformed_nose = self._transform_points(src_points_all[[self.nose_tip_idx]], transform_params['affine_matrix'])
+                    box_center[0] += (box_center[0] - tmp_transformed_nose[:, 0][0]) 
+                    
+                    transform_params = self.compose_similarity_transform(transform_params, box_center, box_size)
+                
+                transformed_points = self._transform_points(src_points_all, transform_params['affine_matrix'])
+                
+                out_of_bounds_count = self._count_out_of_bounds_points(transformed_points)
+                
+                if out_of_bounds_count == 0 or point_set_type == "val":
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    break
+                
+                if out_of_bounds_count < best_out_of_bounds_count:
+                    best_out_of_bounds_count = out_of_bounds_count
+                    out_transform_params = transform_params
+                    out_transformed_points = transformed_points
+                    
+            results['img'] = self.apply_affine_transform(img, out_transform_params['affine_matrix'])
+            results['transformed_keypoints'] = np.array([out_transformed_points])
+            
+            results['M_inv'] = np.array([out_transform_params['M_inv']])
+            results['B_inv'] = np.array([out_transform_params['B_inv']])
+        
+        results['input_size'] = self.input_size
+        
+        return results

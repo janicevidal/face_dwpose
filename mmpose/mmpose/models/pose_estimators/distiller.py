@@ -188,8 +188,8 @@ class PoseEstimatorDistiller(BaseModel, metaclass=ABCMeta):
 
     def extract_feat(self, inputs: Tensor) -> Tuple[Tensor]:
         x = self.teacher.extract_feat(inputs)
-        if self.student.with_neck:
-            x = self.neck(x)
+        # if self.student.with_neck:
+        #     x = self.neck(x)
 
         return x
 
