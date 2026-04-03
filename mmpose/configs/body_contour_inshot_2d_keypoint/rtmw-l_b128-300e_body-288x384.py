@@ -1,15 +1,16 @@
 _base_ = ['mmpose::_base_/default_runtime.py']
 
 # runtime
-max_epochs = 120
-stage2_num_epochs = 10
+max_epochs = 300
+stage2_num_epochs = 25
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=1)
 randomness = dict(seed=21)
 
-num_keypoints = 181
-train_batch_size = 64
+num_keypoints = 73
+# train_batch_size = 64
+train_batch_size = 128
 val_batch_size = 32
 
 # optimizer
@@ -44,8 +45,8 @@ auto_scale_lr = dict(base_batch_size=512)
 # codec settings
 codec = dict(
     type='SimCCLabel',
-    input_size=(384, 384),
-    sigma=(6.93, 6.93),
+    input_size=(288, 384),
+    sigma=(6., 6.93),
     simcc_split_ratio=2.0,
     normalize=False,
     use_dark=False)
@@ -118,9 +119,9 @@ model = dict(
     test_cfg=dict(flip_test=True, ))
 
 # base dataset settings
-dataset_type = 'InshotDataset181'
+dataset_type = 'InshotBodyDataset'
 data_mode = 'topdown'
-data_root = '/data/xiaoshuai/facial_landmark_181/train_0310/'
+data_root = '/data/xiaoshuai/body_keypoint/'
 
 backend_args = dict(backend='local')
 
@@ -131,7 +132,7 @@ train_pipeline = [
     dict(type='RandomFlip', direction='horizontal'),
     dict(type='RandomHalfBody'),
     dict(
-        type='RandomBBoxTransform', scale_factor=[0.5, 1.5], rotate_factor=80),
+        type='RandomBBoxTransform', scale_factor=[0.6, 1.4], rotate_factor=80),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(type='mmdet.YOLOXHSVRandomAug'),
     dict(type='PhotometricDistortion'),
@@ -191,55 +192,6 @@ train_pipeline_stage2 = [
     dict(type='PackPoseInputs')
 ]
 
-dataset_kpts181 = dict(
-    type='RepeatDataset',
-    dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        data_mode=data_mode,
-        ann_file='annotations/train_181_annotations.json',
-        data_prefix=dict(img='train/'),
-        pipeline=[],
-    ),
-    times=2
-)
-
-kpt235_to_181 = [(0, 23), (2, 22), (4, 21), (6, 20), (8, 19), (10, 18), (12, 17), (14, 16), (16, 15), (18, 14), 
-                 (20, 13), (22, 12), (24, 11), (26, 10), (28, 9), (30, 8), (32, 7), (34, 6), (36, 5), 
-                 (37, 28), (38, 29), (39, 30), (40, 31), (41, 32), (42, 33), (43, 34), (44, 35), (45, 36), (46, 37), (47, 38), 
-                 (48, 39), (49, 40), (50, 41), (51, 42), (52, 43), (53, 44), (54, 45), (55, 46), (56, 47), 
-                 (57, 48), (58, 49), (59, 50), (60, 51), (61, 52), (62, 53), (63, 54), (64, 55), (65, 56), (66, 57), (67, 58), 
-                 (68, 59), (69, 60), (70, 61), (71, 62), (72, 63), (73, 64), (74, 65), (75, 66), (76, 67), 
-                 (77, 68), (78, 69), (79, 70), (80, 71), (81, 72), (82, 73), (83, 74), (84, 75), (85, 76), (86, 77), (87, 78), (88, 79), (89, 80), 
-                 (90, 81), (91, 82), (92, 83), (93, 84), (94, 85), (95, 86), (96, 87), (97, 88), (98, 89), (99, 90), (100, 91), 
-                 (101, 92), (102, 93), (103, 94), (104, 95), (105, 96), (106, 97), (107, 98), (108, 99), (109, 100), (110, 101), (111, 102), (112, 103), (113, 104),
-                 (114, 105), (115, 106), (116, 107), (117, 108), (118, 109), (119, 110), (120, 111), (121, 112), (122, 113), (123, 114), (124, 115),
-                 (125, 137), (126, 136), (127, 135), (128, 134), (129, 133), 
-                 (132, 130), (133, 129), (134, 128), (135, 127), (136, 126),
-                 (138, 140), (139, 141), (140, 142), 
-                 (141, 143), ((142, 143), 144), (144, 145), ((145, 146), 146), (147, 147), (150, 148), 
-                 (153, 149), ((154, 155), 150), (156, 151), ((157, 158), 152), (159, 153), 
-                 ((160, 161), 154), (162, 155), ((163, 164), 156), (165, 157), ((166, 167), 158), (168, 159),
-                 ((169, 170), 160), (171, 161), ((172, 173), 162), (174, 163), ((175, 176), 164), (177, 165),
-                 ((178, 179), 166), (180, 167), ((181, 182), 168), (183, 169), 
-                 ((184, 185), 170), (186, 171), ((187, 188), 172), (189, 173),
-                 ((190, 191), 174), (192, 175), ((193, 194), 176), (195, 177), 
-                 ((196, 197), 178), (198, 179), ((199, 200), 180),
-                 (201, 120), (202, 125), (215, 116), (203, 117), (207, 118), (211, 119), (231, 121), (219, 122), (223, 123), (227, 124)
-]
-
-dataset_kpts235 = dict(
-    type='InshotDataset',
-    data_root='/data/xiaoshuai/facial_lanmark/train_0126/',
-    data_mode=data_mode,
-    ann_file='annotations/train_filtered_annotations_refine.json',
-    data_prefix=dict(img='images/'),
-    pipeline=[
-        dict(
-            type='KeypointConverter', num_keypoints=181, mapping=kpt235_to_181)
-    ],
-)
-
 # data loaders
 train_dataloader = dict(
     batch_size=train_batch_size,
@@ -247,85 +199,37 @@ train_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
-        type='CombinedDataset',
-        metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
-        datasets=[dataset_kpts181, dataset_kpts235],
+        type=dataset_type,
+        data_root=data_root,
+        data_mode=data_mode,
+        ann_file='train_annotations_ok.json',
+        data_prefix=dict(img='trainimages_ok/'),
         pipeline=train_pipeline,
-        test_mode=False,
-    )
-)
-
-val_kpts181 = dict(
-    type=dataset_type,
-    data_root=data_root,
-    data_mode=data_mode,
-    ann_file='annotations/val_181_annotations.json',
-    data_prefix=dict(img='val/'),
-    pipeline=[],
-)
-
-val_kpts235 = dict(
-    type='InshotDataset',
-    data_root='/data/xiaoshuai/facial_lanmark/train_0126/',
-    data_mode=data_mode,
-    ann_file='annotations/val_filtered_annotations_refine.json',
-    data_prefix=dict(img='val_1229/'),
-    pipeline=[
-        dict(
-            type='KeypointConverter', num_keypoints=181, mapping=kpt235_to_181)
-    ],
-)
-
-test_dataloader = dict(
-    batch_size=32,
-    num_workers=10,
-    persistent_workers=True,
-    drop_last=False,
-    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
-    dataset=dict(
-        type='CombinedDataset',
-        metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
-        datasets=[val_kpts181, val_kpts235],
-        pipeline=val_pipeline,
-        test_mode=True,
     )
 )
 
 val_dataloader = dict(
     batch_size=val_batch_size,
-    num_workers=10,
+    num_workers=4,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
     dataset=dict(
-        type='CombinedDataset',
-        metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
-        datasets=[val_kpts181, val_kpts235],
-        pipeline=val_pipeline,
+        type=dataset_type,
+        data_root=data_root,
+        data_mode=data_mode,
+        ann_file='val_annotations_ok.json',
+        data_prefix=dict(img='testimages_ok/'),
         test_mode=True,
+        pipeline=val_pipeline,
     )
 )
 
-# test_dataloader = dict(
-#     batch_size=val_batch_size,
-#     num_workers=10,
-#     persistent_workers=True,
-#     drop_last=False,
-#     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
-#     dataset=dict(
-#         type=dataset_type,
-#         data_root=data_root,
-#         data_mode=data_mode,
-#         ann_file='annotations/val_181_annotations.json',
-#         data_prefix=dict(img='val/'),
-#         test_mode=True,
-#         pipeline=val_pipeline,
-#     ))
+test_dataloader = val_dataloader
 
 # hooks
 default_hooks = dict(
-    checkpoint=dict(
-        save_best='NME', rule='less', max_keep_ckpts=3, interval=1))
+    checkpoint=dict(save_best='AUC', rule='greater', max_keep_ckpts=3, interval=1))
 
 custom_hooks = [
     dict(
@@ -341,10 +245,11 @@ custom_hooks = [
 ]
 
 # evaluators
-val_evaluator = dict(
-    type='NME',
-    norm_mode='keypoint_distance',
-)
+val_evaluator = [
+    dict(type='PCKAccuracy', thr=0.1),
+    dict(type='AUC'),
+    dict(type='EPE')
+]
 test_evaluator = val_evaluator
 
 visualizer = dict(vis_backends=[
@@ -352,4 +257,4 @@ visualizer = dict(vis_backends=[
     dict(type='TensorboardVisBackend'),
 ])
 
-work_dir='/home/zhangxiaoshuai/Checkpoint/FacialLandmark181/rtmw-l_b128-120e_inshotmix-384x384_finetune_body_pretrain_neck_refine_box1_2'
+work_dir='/home/zhangxiaoshuai/Checkpoint/BodyContour/rtmw-l_b128-300e_body-288x384_multi'

@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from mmcv.cnn import Scale
+from mmengine.utils import digit_version
+from mmengine.utils.dl_utils import TORCH_VERSION
 from mmengine.structures import InstanceData
 from mmpose.models.backbones.blocks import OREPA_1x1
 from mmpose.evaluation.functional import simcc_pck_accuracy, keypoint_pck_accuracy
@@ -443,8 +445,15 @@ class MultiTaskHybridLiteMLEHead(BaseHead):
             simc_pred_y = C_y / (C_y - 1) * (simc_pred_y - 1 / (2 * C_y))
         
         if torch.onnx.is_in_onnx_export():
-            simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=-1)
-            angle_pred = torch.cat([pred_yaw, pred_pitch], dim=-1)
+            # (x1, x2,..., y1, y2 ...)
+            simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=1)
+            # (x1, y1, x2, y2 ...)
+            # simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=-1)
+
+            # (yaw, pitch)
+            # angle_pred = torch.cat([pred_yaw, pred_pitch], dim=-1)
+            # (pitch, yaw)
+            angle_pred = torch.cat([pred_pitch, pred_yaw], dim=-1)
             return simc_pred, angle_pred
         else:
             simc_pred = torch.cat([simc_pred_x, simc_pred_y], dim=-1)

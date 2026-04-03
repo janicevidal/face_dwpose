@@ -103,9 +103,9 @@ model = dict(
     type='TopdownPosePrealignEstimatorMultitask',
     data_preprocessor=dict(
         type='PoseDataPreprocessor',
-        mean=[123.675, 116.28, 103.53],
-        std=[58.395, 57.12, 57.375],
-        bgr_to_rgb=True),
+        mean=[127.5, 127.5, 127.5],
+        std=[128, 128, 128],
+        bgr_to_rgb=False),
     backbone=dict(
         type='RepGhostNet',
         cfgs=cfgs_md2_middle['cfg'], 
@@ -115,16 +115,15 @@ model = dict(
         block_shift=0,
         out_feat_chs=[88, 128],
         deploy=False,
-        # 训练用 imagenet 归一化，部署用 mtcnnn'n 归一化，适应到训练归一化（imagenet 形式）RGB 中 (可选)
-        # deploy_mtcnn_mean_std=True,
+        # deploy=True,
         init_cfg=dict(
             type='Pretrained',
             prefix='backbone.',
-            checkpoint='/home/zhangxiaoshuai/Checkpoint/FacialLandmark181/kpts181_prealign_128x128_finetune235_up/epoch_420.pth'
+            checkpoint='/home/zhangxiaoshuai/Checkpoint/FacialLandmark181/_euler_kpts181_prealign/multitask_kpts181_prealign_128x128_mle_hybrid_mtcnn_norm_up_resume/best_NME_epoch_242.pth'
         )
         ),
     head=dict(
-        type='MultiTaskHybridLiteMLEHeadDeploy181',
+        type='MultiTaskHybridLiteMLEHead',
         in_channels=192,
         out_channels=num_keypoints,
         hidden_dims=64,
@@ -259,6 +258,14 @@ dataset_kpts235 = dict(
     data_prefix=dict(img='images/'),
 )
 
+dataset_kpts235_inc = dict(
+    type=dataset_type,
+    data_root='/data/xiaoshuai/facial_landmark_181/train_0331/',
+    data_mode=data_mode,
+    ann_file='annotations/train_angles_annotations_181.json',
+    data_prefix=dict(img='images/'),
+)
+
 # data loaders
 train_dataloader = dict(
     batch_size=train_batch_size,
@@ -268,7 +275,7 @@ train_dataloader = dict(
     dataset=dict(
         type='CombinedDataset',
         metainfo=dict(from_file='configs/_base_/datasets/inshot_181.py'),
-        datasets=[dataset_kpts181, dataset_kpts235],
+        datasets=[dataset_kpts181, dataset_kpts235, dataset_kpts235_inc],
         pipeline=train_pipeline,
         test_mode=False,
     )

@@ -7,17 +7,23 @@ import shutil
 def main():    
     
     # input_path =  "/data/xiaoshuai/facial_landmark_181/train_0310/val/"
-    input_path = "/data/xiaoshuai/facial_lanmark/train_1226/val_1229/"
-    npy_path = '/data/xiaoshuai/facial_landmark_181/train_0326/val/'
-    output_path = '/data/xiaoshuai/facial_landmark_181/train_0326/val_visualize/'
+    # input_path = "/data/xiaoshuai/facial_lanmark/train_1226/val_1229/"
+    # npy_path = '/data/xiaoshuai/facial_landmark_181/train_0326/val/'
+    # output_path = '/data/xiaoshuai/facial_landmark_181/train_0326/val_visualize/'
     
-    dst_path = "/data/xiaoshuai/facial_landmark_181/train_0326/val_images/"
+    # dst_path = "/data/xiaoshuai/facial_landmark_181/train_0326/val_images/"
     
     # input_path = "/data/xiaoshuai/facial_lanmark/train_0126/images/"
     # npy_path = '/data/xiaoshuai/facial_landmark_181/prelable/train/'
     # output_path = '/data/xiaoshuai/facial_landmark_181/prelable/train_visualize/'
     
     # dst_path = "/data/xiaoshuai/facial_landmark_181/prelable/train_imgs/"
+    
+    input_path = "/data/xiaoshuai/facial_lanmark/train_0126/images/"
+    npy_path = '/data/xiaoshuai/facial_landmark_181/train_0331/npys/'
+    output_path = '/data/xiaoshuai/facial_landmark_181/train_0331/train_visualize/'
+    
+    dst_path = "/data/xiaoshuai/facial_landmark_181/train_0331/images/"
     
     if not os.path.exists(dst_path):
         os.makedirs(dst_path)
@@ -93,7 +99,7 @@ def main():
         cv2.imwrite(output_path + img_name, image)
         
         
-        shutil.copy(img_path, dst_path)
+        # shutil.copy(img_path, dst_path)
 
 
 if __name__ == '__main__':

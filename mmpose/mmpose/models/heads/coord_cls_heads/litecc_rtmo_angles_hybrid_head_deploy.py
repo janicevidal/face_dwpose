@@ -362,14 +362,13 @@ class MultiTaskHybridLiteMLEHead(BaseHead):
         
         pred = permuted.reshape(batch_size, seq_len * 2, 144)
         
-        if self.with_sihn:
-            pred_sfm = self._flat_softmax_sihn(pred * self.beta)
-        elif self.with_sihn_relu:
+        # 只适用于 with_sihn_relu True 的情况, softmax下不等价
+        if self.with_sihn_relu:
             # pred_sfm = F.relu(pred * self.beta)
             pred_sfm = F.relu(pred)
             pred_sfm = pred_sfm / (pred_sfm.sum(dim=2, keepdim=True)).clamp(min=1e-5)
         else:
-            pred_sfm = self._flat_softmax(pred * self.beta)
+            raise NotImplementedError
         
         simc_pred = self._linear_expectation(pred_sfm, self.linspace_x)
         

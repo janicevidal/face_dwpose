@@ -59,9 +59,13 @@ if __name__ == '__main__':
     # npy_235_dir = "/data/xiaoshuai/facial_lanmark/train_0126/box_correct_square_20_d"
     # save_dir = "/data/xiaoshuai/facial_landmark_181/prelable/train/"
     
-    pkl_file_path = "/home/zhangxiaoshuai/Project/face_dwpose/mmpose/kpts_181_mix_rtmw_l_train_results_0325.pkl"
-    npy_235_dir = "/data/xiaoshuai/facial_lanmark/train_0325/images_all_181_filter/"
-    save_dir = "/data/xiaoshuai/facial_landmark_181/prelable/train_0325/"
+    # pkl_file_path = "/home/zhangxiaoshuai/Project/face_dwpose/mmpose/kpts_181_mix_rtmw_l_train_results_0325.pkl"
+    # npy_235_dir = "/data/xiaoshuai/facial_lanmark/train_0325/images_all_181_filter/"
+    # save_dir = "/data/xiaoshuai/facial_landmark_181/prelable/train_0325/"
+    
+    pkl_file_path = "/home/zhangxiaoshuai/Project/face_dwpose/mmpose/kpts_181_mix_rtmw_l_train_results_0331.pkl"
+    npy_235_dir = "/data/xiaoshuai/facial_lanmark/train_0126/box_correct_square_20_d"
+    save_dir = "/data/xiaoshuai/facial_landmark_181/train_0331/npys/"
     
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)

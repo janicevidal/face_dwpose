@@ -389,8 +389,12 @@ if __name__ == "__main__":
     # npy_dir = "/data/xiaoshuai/facial_landmark_181/train_0326/npys/"
     # output_json_path = "/data/xiaoshuai/facial_landmark_181/train_0326/annotations/train_angles_annotations_181.json"
     
-    image_dir = "/data/xiaoshuai/facial_landmark_181/train_0326/val_images/" 
-    npy_dir = "/data/xiaoshuai/facial_landmark_181/train_0326/val_npys/"
-    output_json_path = "/data/xiaoshuai/facial_landmark_181/train_0326/annotations/val_angles_annotations_181.json"
+    # image_dir = "/data/xiaoshuai/facial_landmark_181/train_0326/val_images/" 
+    # npy_dir = "/data/xiaoshuai/facial_landmark_181/train_0326/val_npys/"
+    # output_json_path = "/data/xiaoshuai/facial_landmark_181/train_0326/annotations/val_angles_annotations_181.json"
+    
+    image_dir = "/data/xiaoshuai/facial_landmark_181/train_0331/images/" 
+    npy_dir = "/data/xiaoshuai/facial_landmark_181/train_0331/npys/"
+    output_json_path = "/data/xiaoshuai/facial_landmark_181/train_0331/annotations/train_angles_annotations_181.json"
     
     convert_to_coco_format(image_dir, npy_dir, output_json_path, json_base_paths)

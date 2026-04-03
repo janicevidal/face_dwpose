@@ -295,6 +295,12 @@ class BaseCocoStyleDataset(BaseDataset):
             num_keypoints = ann['num_keypoints']
         else:
             num_keypoints = np.count_nonzero(keypoints.max(axis=2))
+        
+        if 'area' in ann:
+            area = np.array(ann['area'], dtype=np.float32)
+        else:
+            area = np.clip((x2 - x1) * (y2 - y1) * 0.53, a_min=1.0, a_max=None)
+            area = np.array(area, dtype=np.float32)
 
         data_info = {
             'img_id': ann['image_id'],
@@ -304,6 +310,7 @@ class BaseCocoStyleDataset(BaseDataset):
             'num_keypoints': num_keypoints,
             'keypoints': keypoints,
             'keypoints_visible': keypoints_visible,
+            'area': area,
             'iscrowd': ann.get('iscrowd', 0),
             'segmentation': ann.get('segmentation', None),
             'id': ann['id'],
