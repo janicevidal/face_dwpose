@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from mmcv.cnn import Scale
+from mmengine.utils import digit_version
+from mmengine.utils.dl_utils import TORCH_VERSION
 from mmengine.structures import InstanceData
 from mmpose.models.backbones.blocks import OREPA_1x1
 from mmpose.evaluation.functional import simcc_pck_accuracy, keypoint_pck_accuracy

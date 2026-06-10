@@ -19,14 +19,18 @@ def main():
     
     # dst_path = "/data/xiaoshuai/facial_landmark_181/prelable/train_imgs/"
     
-    input_path = "/data/xiaoshuai/facial_lanmark/train_0126/images/"
-    npy_path = '/data/xiaoshuai/facial_landmark_181/train_0331/npys/'
-    output_path = '/data/xiaoshuai/facial_landmark_181/train_0331/train_visualize/'
+    # input_path = "/data/xiaoshuai/facial_lanmark/train_0126/images/"
+    # npy_path = '/data/xiaoshuai/facial_landmark_181/train_0331/npys/'
+    # output_path = '/data/xiaoshuai/facial_landmark_181/train_0331/train_visualize/'
     
-    dst_path = "/data/xiaoshuai/facial_landmark_181/train_0331/images/"
+    input_path = "/data/xiaoshuai/facial_landmark_181/train_0326/images/"
+    npy_path = '/data/xiaoshuai/facial_landmark_181/train_0326/npys/'
+    output_path = '/data/xiaoshuai/facial_landmark_181/train_0326/train_visualize/'
     
-    if not os.path.exists(dst_path):
-        os.makedirs(dst_path)
+    # dst_path = "/data/xiaoshuai/facial_landmark_181/train_0331/images/"
+    
+    # if not os.path.exists(dst_path):
+    #     os.makedirs(dst_path)
     
     if not os.path.exists(output_path):
         os.makedirs(output_path)

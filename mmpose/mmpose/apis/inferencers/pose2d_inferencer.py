@@ -199,6 +199,28 @@ class Pose2DInferencer(BaseMMPoseInferencer):
                     label_mask, pred_instance.scores > bbox_thr)]
                 bboxes = bboxes[nms(bboxes, nms_thr)]
 
+                # ========== 新增：过滤尺寸过小的 bbox ==========
+                # 获取图像尺寸
+                if isinstance(input, str):
+                    img = mmcv.imread(input)
+                else:
+                    img = input
+                h, w = img.shape[:2]
+                max_side = max(w, h)
+                size_thr = 0.0
+                # size_thr = max_side / 2.0
+                # size_thr = max_side / 5.0
+
+                valid_bboxes = []
+                for bbox in bboxes:
+                    x1, y1, x2, y2 = bbox[:4]
+                    bbox_w = x2 - x1
+                    bbox_h = y2 - y1
+                    if max(bbox_w, bbox_h) >= size_thr:
+                        valid_bboxes.append(bbox)
+                bboxes = np.array(valid_bboxes) if valid_bboxes else np.empty((0, 5))
+                # ==============================================
+
             data_infos = []
             if len(bboxes) > 0:
                 for bbox in bboxes:
@@ -207,15 +229,10 @@ class Pose2DInferencer(BaseMMPoseInferencer):
                     inst['bbox_score'] = bbox[4:5]
                     data_infos.append(self.pipeline(inst))
             else:
+                # 没有有效 bbox 时创建一个假框，后续 forward 会将其预测结果清空
                 inst = data_info.copy()
-
-                # get bbox from the image size
-                if isinstance(input, str):
-                    input = mmcv.imread(input)
-                h, w = input.shape[:2]
-
-                inst['bbox'] = np.array([[0, 0, w, h]], dtype=np.float32)
-                inst['bbox_score'] = np.ones(1, dtype=np.float32)
+                inst['bbox'] = np.array([[0, 0, 0, 0]], dtype=np.float32)
+                inst['bbox_score'] = np.zeros(1, dtype=np.float32)
                 data_infos.append(self.pipeline(inst))
 
         else:  # bottom-up
@@ -246,6 +263,12 @@ class Pose2DInferencer(BaseMMPoseInferencer):
         """
         data_samples = self.model.test_step(inputs)
         if self.cfg.data_mode == 'topdown' and merge_results:
+            # ========== 新增：清空假框对应的预测结果 ==========
+            # 遍历每个样本，若其 bbox 为零面积则清除 pred_instances
+            for ds, inp in zip(data_samples, inputs):
+                if 'bbox' in ds.metainfo and np.allclose(ds.metainfo['bbox'], [0, 0, 0, 0]):
+                    ds.pred_instances = InstanceData()
+            # ===============================================
             data_samples = [merge_data_samples(data_samples)]
         if bbox_thr > 0:
             for ds in data_samples:
